@@ -23,6 +23,7 @@
 #include "concurrency.h"
 #include "joining_thread.h"
 #include "message_passing_interface_session.h"
+#include "recursion_depth.h"
 
 using namespace panda;
 
@@ -52,6 +53,8 @@ void panda::implementation::adjacencyDecomposition(int argc, char** argv, const 
 {
    const auto node_count = mpi::getSession().getNumberOfNodes();
    const auto thread_count = concurrency::numberOfThreads(argc, argv);
+   const auto recursion_depth = recursion::depth(argc, argv);
+   const auto min_vertices = recursion::minimumVertices(argc, argv);
    const auto& input = std::get<0>(data);
    const auto& names = std::get<1>(data);
    const auto& known_output = std::get<3>(data);
@@ -72,7 +75,9 @@ void panda::implementation::adjacencyDecomposition(int argc, char** argv, const 
             {
                break;
             }
-            const auto jobs = algorithm::rotation(input, job, maps, tag);
+            const auto jobs = ( recursion_depth > 0 )
+               ? algorithm::rotationRecursive(input, job, maps, tag, recursion_depth, min_vertices)
+               : algorithm::rotation(input, job, maps, tag);
             job_manager.put(jobs);
          }
       });

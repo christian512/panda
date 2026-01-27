@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <list>
+#include <set>
 
 #include "algorithm_classes.h"
 #include "algorithm_fourier_motzkin_elimination.h"
@@ -30,6 +32,12 @@ namespace
    /// Returns all vertices that lie on the facet (satisfy the inequality with equality).
    template <typename Integer>
    Vertices<Integer> verticesWithZeroDistance(const Vertices<Integer>&, const Facet<Integer>&);
+   /// Returns ridges using single-threaded adjacency decomposition on the sub-polytope.
+   template <typename Integer, typename TagType>
+   Inequalities<Integer> getRidgesRecursive(const Vertices<Integer>&, const Facet<Integer>&, TagType, int, int);
+   /// Performs single-threaded adjacency decomposition, returning all facets found.
+   template <typename Integer, typename TagType>
+   Matrix<Integer> singleThreadedAD(const Matrix<Integer>&, TagType, int, int);
 }
 
 template <typename Integer, typename TagType>
@@ -42,6 +50,25 @@ Matrix<Integer> panda::algorithm::rotation(const Matrix<Integer>& matrix,
    // this will be the same vertex for all neighbouring ridges, hence, only needs to be computed once.
    const auto furthest_vertex = furthestVertex(matrix, input);
    const auto ridges = getRidges(matrix, input);
+   std::set<Row<Integer>> output;
+   for ( const auto& ridge : ridges )
+   {
+      const auto new_row = rotate(matrix, furthest_vertex, input, ridge);
+      output.insert(new_row);
+   }
+   return classes(output, maps, tag);
+}
+
+template <typename Integer, typename TagType>
+Matrix<Integer> panda::algorithm::rotationRecursive(const Matrix<Integer>& matrix,
+                                    const Row<Integer>& input,
+                                    const Maps& maps,
+                                    TagType tag,
+                                    int recursion_depth,
+                                    int min_vertices)
+{
+   const auto furthest_vertex = furthestVertex(matrix, input);
+   const auto ridges = getRidgesRecursive(matrix, input, tag, recursion_depth, min_vertices);
    std::set<Row<Integer>> output;
    for ( const auto& ridge : ridges )
    {
@@ -99,6 +126,61 @@ namespace
          return (algorithm::distance(facet, vertex) == 0);
       });
       return selection;
+   }
+
+   template <typename Integer, typename TagType>
+   Inequalities<Integer> getRidgesRecursive(const Vertices<Integer>& vertices, const Facet<Integer>& facet, TagType tag, int recursion_depth, int min_vertices)
+   {
+      const auto vertices_on_facet = verticesWithZeroDistance(vertices, facet);
+      assert( !vertices_on_facet.empty() );
+      const auto num_vertices = static_cast<int>(vertices_on_facet.size());
+      const auto effective_min = (min_vertices < 2) ? 2 : min_vertices;
+      if ( recursion_depth > 0 && num_vertices >= effective_min )
+      {
+         return singleThreadedAD(vertices_on_facet, tag, recursion_depth - 1, min_vertices);
+      }
+      return algorithm::fourierMotzkinElimination(vertices_on_facet);
+   }
+
+   template <typename Integer, typename TagType>
+   Matrix<Integer> singleThreadedAD(const Matrix<Integer>& vertices, TagType tag, int recursion_depth, int min_vertices)
+   {
+      // Get initial facets via FME heuristic
+      auto initial_facets = algorithm::fourierMotzkinEliminationHeuristic(vertices);
+      if ( initial_facets.empty() )
+      {
+         return initial_facets;
+      }
+      // BFS rotation loop to find all facets
+      std::set<Row<Integer>> all_facets(initial_facets.begin(), initial_facets.end());
+      std::list<Row<Integer>> queue(initial_facets.begin(), initial_facets.end());
+      const Maps empty_maps;
+      while ( !queue.empty() )
+      {
+         auto current = queue.front();
+         queue.pop_front();
+         const auto furthest = algorithm::furthestVertex(vertices, current);
+         Inequalities<Integer> ridges;
+         const auto effective_min = (min_vertices < 2) ? 2 : min_vertices;
+         if ( recursion_depth > 0 && static_cast<int>(vertices.size()) >= effective_min )
+         {
+            ridges = getRidgesRecursive(vertices, current, tag, recursion_depth, min_vertices);
+         }
+         else
+         {
+            ridges = getRidges(vertices, current);
+         }
+         for ( const auto& ridge : ridges )
+         {
+            const auto adjacent = rotate(vertices, furthest, current, ridge);
+            if ( all_facets.find(adjacent) == all_facets.end() )
+            {
+               all_facets.insert(adjacent);
+               queue.push_back(adjacent);
+            }
+         }
+      }
+      return Matrix<Integer>(all_facets.begin(), all_facets.end());
    }
 }
 
