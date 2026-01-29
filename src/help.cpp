@@ -173,6 +173,26 @@ namespace
                 << "\t./" << project::binary_name << " myproblem --threads=10\n";
    }
 
+   void printHelpCommandRecursion()
+   {
+      std::cout << "Adjacency decomposition can optionally use recursive calls to find ridges.\n"
+                << "Instead of using Fourier-Motzkin Elimination to find ridges on a facet,\n"
+                << "a full single-threaded adjacency decomposition is performed on the sub-polytope\n"
+                << "of vertices lying on that facet.\n\n"
+                << "The recursion depth controls how many levels of recursive calls are allowed.\n"
+                << "A depth of 0 (the default) disables recursion and uses Fourier-Motzkin Elimination.\n"
+                << "A depth of 1 means one level of recursive AD is used for ridge finding.\n\n"
+                << "Use \"-r\" / \"--recursion-depth=\" to set the recursion depth.\n"
+                << "Example usage:\n"
+                << "\t./" << project::binary_name << " myproblem -r 1\n"
+                << "\t./" << project::binary_name << " myproblem --recursion-depth=2\n\n"
+                << "Additionally, \"--recursion-min-vertices=<n>\" sets the minimum number of vertices\n"
+                << "on a facet required to trigger a recursive call. If a facet has fewer vertices,\n"
+                << "Fourier-Motzkin Elimination is used instead. The minimum is always at least 2.\n"
+                << "Example usage:\n"
+                << "\t./" << project::binary_name << " myproblem -r 1 --recursion-min-vertices=5\n";
+   }
+
    void printHelpCommandVersion()
    {
       std::cout << "For bug reports, please include the version information.\n"
@@ -212,6 +232,10 @@ namespace
       else if ( command == "t" || command == "-t" || command == "threads" || command == "--threads" )
       {
          printHelpCommandThreads();
+      }
+      else if ( command == "r" || command == "-r" || command == "recursion" || command == "recursion-depth" || command == "--recursion-depth" || command == "recursion-min-vertices" || command == "--recursion-min-vertices" )
+      {
+         printHelpCommandRecursion();
       }
       else if ( command == "v" || command == "-v" || command == "version" || command == "-version" || command == "--version" )
       {
