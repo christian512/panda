@@ -193,6 +193,20 @@ namespace
                 << "\t./" << project::binary_name << " myproblem -r 1 --recursion-min-vertices=5\n";
    }
 
+   void printHelpCommandSampling()
+   {
+      std::cout << "Sampling mode modifies the behaviour of recursive adjacency decomposition.\n"
+                << "Normally, the inner single-threaded AD enumerates all facets of a sub-polytope\n"
+                << "by processing a queue: each newly discovered facet is enqueued for further rotation.\n\n"
+                << "With --sampling enabled, the inner AD only processes the initial facets obtained\n"
+                << "from the Fourier-Motzkin heuristic. Newly discovered facets are recorded but not\n"
+                << "enqueued for further exploration. This produces a sample of the ridges rather than\n"
+                << "the complete set.\n\n"
+                << "This option only has an effect when recursion is enabled (-r <n> with n > 0).\n"
+                << "Example usage:\n"
+                << "\t./" << project::binary_name << " myproblem -r 3 --sampling\n";
+   }
+
    void printHelpCommandVersion()
    {
       std::cout << "For bug reports, please include the version information.\n"
@@ -236,6 +250,10 @@ namespace
       else if ( command == "r" || command == "-r" || command == "recursion" || command == "recursion-depth" || command == "--recursion-depth" || command == "recursion-min-vertices" || command == "--recursion-min-vertices" )
       {
          printHelpCommandRecursion();
+      }
+      else if ( command == "sampling" || command == "--sampling" )
+      {
+         printHelpCommandSampling();
       }
       else if ( command == "v" || command == "-v" || command == "version" || command == "-version" || command == "--version" )
       {

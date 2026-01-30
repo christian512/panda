@@ -82,6 +82,10 @@ InputOrder panda::getInputOrder(int argc, char** argv)
       {
          return inputOrder(argv[i] + 10);
       }
+      else if ( std::strcmp(argv[i], "--sampling") == 0 )
+      {
+         // handled by recursion::sampling(), skip here
+      }
       else if ( std::strncmp(argv[i], "-s", 2) == 0 || std::strncmp(argv[i], "--s", 3) == 0 )
       {
          throw std::invalid_argument("Illegal parameter. Did you mean \"-s <order>\" or \"--sorting=<order>\"?");

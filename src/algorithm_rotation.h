@@ -20,7 +20,7 @@ namespace panda
       Facets<Integer> rotation(const Vertices<Integer>&, const Facet<Integer>&, const Maps&, TagType);
       /// Same as rotation, but finds ridges via recursive adjacency decomposition instead of FME.
       template <typename Integer, typename TagType>
-      Facets<Integer> rotationRecursive(const Vertices<Integer>&, const Facet<Integer>&, const Maps&, TagType, int, int);
+      Facets<Integer> rotationRecursive(const Vertices<Integer>&, const Facet<Integer>&, const Maps&, TagType, int, int, bool);
    }
 }
 

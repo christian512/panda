@@ -92,6 +92,9 @@ namespace
                 << "\t--recursion-min-vertices=<n>\n"
                 << "\t\tminimum number of vertices on a facet to trigger a recursive call (default: 0).\n"
                 << '\n'
+                << "\t--sampling\n"
+                << "\t\tin recursive AD, only analyse initial facets without enqueuing newly found ones.\n"
+                << '\n'
                 << "\t-h <arg>\n\t--help=<arg>\n\t--help-command=<arg>\n"
                 << "\t\twith <arg> being a valid command (i.e. one occuring in this list).\n"
                 << '\n'

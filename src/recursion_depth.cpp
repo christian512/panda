@@ -70,6 +70,19 @@ int panda::recursion::minimumVertices(int argc, char** argv)
    return 0; // Default: no minimum
 }
 
+bool panda::recursion::sampling(int argc, char** argv)
+{
+   assert( argc > 0 && argv != nullptr );
+   for ( int i = 1; i < argc; ++i )
+   {
+      if ( std::strcmp(argv[i], "--sampling") == 0 )
+      {
+         return true;
+      }
+   }
+   return false;
+}
+
 namespace
 {
    int interpretParameter(char* string, const std::string& option_name)
