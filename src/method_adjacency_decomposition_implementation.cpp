@@ -13,6 +13,7 @@
 #include <future>
 #include <iostream>
 #include <list>
+#include <optional>
 
 #include "algorithm_classes.h"
 #include "algorithm_fourier_motzkin_elimination.h"
@@ -20,10 +21,12 @@
 #include "algorithm_matrix_operations.h"
 #include "algorithm_rotation.h"
 #include "algorithm_row_operations.h"
+#include "algorithm_classes_vertex_support.h"
 #include "concurrency.h"
 #include "joining_thread.h"
 #include "message_passing_interface_session.h"
 #include "recursion_depth.h"
+#include "vertex_group.h"
 
 using namespace panda;
 
@@ -46,6 +49,7 @@ namespace
 
    template <typename Integer, typename TagType>
    std::future<void> initializePool(JobManagerProxy<Integer, TagType>&, const Matrix<Integer>&, const Maps&, const Matrix<Integer>&, const Equations<Integer>&);
+
 }
 
 template <template <typename, typename> class JobManagerType, typename Integer, typename TagType>
@@ -58,7 +62,10 @@ void panda::implementation::adjacencyDecomposition(int argc, char** argv, const 
    const auto sampling = recursion::sampling(argc, argv);
    const auto& input = std::get<0>(data);
    const auto& names = std::get<1>(data);
+   const auto& original_maps = std::get<2>(data);
    const auto& known_output = std::get<3>(data);
+   // Build vertex permutation group from original maps BEFORE normalization
+   const auto vertex_group = VertexGroup::create(original_maps, input);
    JobManagerType<Integer, TagType> job_manager(names, node_count, thread_count);
    const auto reduced_data = reduce(job_manager, data);
    const auto& equations = std::get<0>(reduced_data);
@@ -77,8 +84,8 @@ void panda::implementation::adjacencyDecomposition(int argc, char** argv, const 
                break;
             }
             const auto jobs = ( recursion_depth > 0 )
-               ? algorithm::rotationRecursive(input, job, maps, tag, recursion_depth, min_vertices, sampling)
-               : algorithm::rotation(input, job, maps, tag);
+               ? algorithm::rotationRecursive(input, job, maps, vertex_group, tag, recursion_depth, min_vertices, sampling)
+               : algorithm::rotation(input, job, maps, vertex_group, tag);
             job_manager.put(jobs);
          }
       });

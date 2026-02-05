@@ -1,0 +1,45 @@
+
+//-------------------------------------------------------------------------------//
+// Author: Christian Staufenbiel                                                 //
+// License: CC BY-NC 4.0 http://creativecommons.org/licenses/by-nc/4.0/legalcode //
+//-------------------------------------------------------------------------------//
+
+#include <cstdint>
+
+#ifdef COMPILE_TEMPLATE_VERTEX_GROUP
+   #define EXTERN
+#else
+   #define EXTERN extern
+#endif
+
+#ifndef NO_FLEXIBILITY
+   #ifdef INT16_MIN
+      #define Integer int16_t
+      #include "vertex_group.beti"
+      #undef Integer
+   #endif
+   #ifdef INT32_MIN
+      #define Integer int32_t
+      #include "vertex_group.beti"
+      #undef Integer
+   #endif
+   #ifdef INT64_MIN
+      #define Integer int64_t
+      #include "vertex_group.beti"
+      #undef Integer
+   #endif
+   #include "big_integer.h"
+   #define Integer panda::BigInteger
+   #include "vertex_group.beti"
+   #undef Integer
+   #include "safe_integer.h"
+   #define Integer panda::SafeInteger
+   #include "vertex_group.beti"
+   #undef Integer
+#else
+   #define Integer int
+   #include "vertex_group.beti"
+   #undef Integer
+#endif
+
+#undef EXTERN

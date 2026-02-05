@@ -16,10 +16,9 @@ namespace panda
 {
    namespace algorithm
    {
-      EXTERN template Matrix<Integer> rotation(const Matrix<Integer>&, const Row<Integer>&, const Maps&, tag::facet);
-      EXTERN template Matrix<Integer> rotation(const Matrix<Integer>&, const Row<Integer>&, const Maps&, tag::vertex);
-      EXTERN template Matrix<Integer> rotationRecursive(const Matrix<Integer>&, const Row<Integer>&, const Maps&, tag::facet, int, int, bool);
-      EXTERN template Matrix<Integer> rotationRecursive(const Matrix<Integer>&, const Row<Integer>&, const Maps&, tag::vertex, int, int, bool);
+      EXTERN template Matrix<Integer> rotation(const Matrix<Integer>&, const Row<Integer>&, const Maps&, const std::optional<VertexGroup>&, tag::facet);
+      EXTERN template Matrix<Integer> rotation(const Matrix<Integer>&, const Row<Integer>&, const Maps&, const std::optional<VertexGroup>&, tag::vertex);
+      EXTERN template Matrix<Integer> rotationRecursive(const Matrix<Integer>&, const Row<Integer>&, const Maps&, const std::optional<VertexGroup>&, tag::facet, int, int, bool);
+      EXTERN template Matrix<Integer> rotationRecursive(const Matrix<Integer>&, const Row<Integer>&, const Maps&, const std::optional<VertexGroup>&, tag::vertex, int, int, bool);
    }
 }
-

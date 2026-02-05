@@ -18,6 +18,7 @@
 #endif
 
 #include "algorithm_classes.h"
+#include "algorithm_classes_vertex_support.h"
 #include "algorithm_fourier_motzkin_elimination.h"
 #include "algorithm_inequality_operations.h"
 #include "algorithm_integer_operations.h"
@@ -48,6 +49,7 @@ template <typename Integer, typename TagType>
 Matrix<Integer> panda::algorithm::rotation(const Matrix<Integer>& matrix,
                                     const Row<Integer>& input,
                                     const Maps& maps,
+                                    const std::optional<VertexGroup>& vertex_group,
                                     TagType tag)
 {
    // as the first step of the rotation, the furthest Vertex w.r.t. the input facet is calculated.
@@ -60,6 +62,11 @@ Matrix<Integer> panda::algorithm::rotation(const Matrix<Integer>& matrix,
       const auto new_row = rotate(matrix, furthest_vertex, input, ridge);
       output.insert(new_row);
    }
+   // Use vertex-support-based equivalence if vertex group is available
+   if ( vertex_group.has_value() )
+   {
+      return classesVertexSupport(output, matrix, maps, *vertex_group, tag);
+   }
    return classes(output, maps, tag);
 }
 
@@ -67,6 +74,7 @@ template <typename Integer, typename TagType>
 Matrix<Integer> panda::algorithm::rotationRecursive(const Matrix<Integer>& matrix,
                                     const Row<Integer>& input,
                                     const Maps& maps,
+                                    const std::optional<VertexGroup>& vertex_group,
                                     TagType tag,
                                     int recursion_depth,
                                     int min_vertices,
@@ -83,6 +91,11 @@ Matrix<Integer> panda::algorithm::rotationRecursive(const Matrix<Integer>& matri
    #ifdef DEBUG
    std::cerr << "[DEBUG] Equivalence check: " << output.size() << " facets\n";
    #endif
+   // Use vertex-support-based equivalence if vertex group is available
+   if ( vertex_group.has_value() )
+   {
+      return classesVertexSupport(output, matrix, maps, *vertex_group, tag);
+   }
    return classes(output, maps, tag);
 }
 
@@ -212,4 +225,3 @@ namespace
       return Matrix<Integer>(all_facets.begin(), all_facets.end());
    }
 }
-
