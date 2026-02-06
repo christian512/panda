@@ -19,7 +19,5 @@ namespace panda
    namespace algorithm
    {
       EXTERN template std::vector<std::vector<std::size_t>> computeVertexPermutations(const Maps&, const Matrix<Integer>&);
-      EXTERN template Matrix<Integer> classesVertexSupport(std::set<Row<Integer>>, const Matrix<Integer>&, const Maps&, const VertexGroup&, tag::facet);
-      EXTERN template Matrix<Integer> classesVertexSupport(std::set<Row<Integer>>, const Matrix<Integer>&, const Maps&, const VertexGroup&, tag::vertex);
    }
 }

@@ -66,7 +66,7 @@ void panda::implementation::adjacencyDecomposition(int argc, char** argv, const 
    const auto& known_output = std::get<3>(data);
    // Build vertex permutation group from original maps BEFORE normalization
    const auto vertex_group = VertexGroup::create(original_maps, input);
-   JobManagerType<Integer, TagType> job_manager(names, node_count, thread_count);
+   JobManagerType<Integer, TagType> job_manager(names, node_count, thread_count, vertex_group, input);
    const auto reduced_data = reduce(job_manager, data);
    const auto& equations = std::get<0>(reduced_data);
    const auto& maps = std::get<1>(reduced_data);

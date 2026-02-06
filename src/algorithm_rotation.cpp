@@ -62,10 +62,11 @@ Matrix<Integer> panda::algorithm::rotation(const Matrix<Integer>& matrix,
       const auto new_row = rotate(matrix, furthest_vertex, input, ridge);
       output.insert(new_row);
    }
-   // Use vertex-support-based equivalence if vertex group is available
+   // When vertex group is available, skip equivalence reduction here;
+   // canonical support dedup happens at put() time in the List.
    if ( vertex_group.has_value() )
    {
-      return classesVertexSupport(output, matrix, maps, *vertex_group, tag);
+      return Matrix<Integer>(output.begin(), output.end());
    }
    return classes(output, maps, tag);
 }
@@ -91,10 +92,11 @@ Matrix<Integer> panda::algorithm::rotationRecursive(const Matrix<Integer>& matri
    #ifdef DEBUG
    std::cerr << "[DEBUG] Equivalence check: " << output.size() << " facets\n";
    #endif
-   // Use vertex-support-based equivalence if vertex group is available
+   // When vertex group is available, skip equivalence reduction here;
+   // canonical support dedup happens at put() time in the List.
    if ( vertex_group.has_value() )
    {
-      return classesVertexSupport(output, matrix, maps, *vertex_group, tag);
+      return Matrix<Integer>(output.begin(), output.end());
    }
    return classes(output, maps, tag);
 }

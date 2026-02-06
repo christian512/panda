@@ -7,12 +7,14 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 
 #include "communication.h"
 #include "matrix.h"
 #include "names.h"
 #include "row.h"
 #include "tags.h"
+#include "vertex_group.h"
 
 namespace panda
 {
@@ -28,7 +30,7 @@ namespace panda
          /// Returns facet that wasn't ever returned here before. Blocks the caller until data is available.
          Row<Integer> get() const;
          /// Constructor. The arguments are deliberately ignored in JobManagerProxy.
-         JobManagerProxy(const Names&, const int, const int);
+         JobManagerProxy(const Names&, const int, const int, const std::optional<VertexGroup>& = std::nullopt, const Matrix<Integer>& = Matrix<Integer>{});
       private:
          Communication communication;
    };

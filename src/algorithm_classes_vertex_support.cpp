@@ -10,13 +10,11 @@
 
 #include <algorithm>
 #include <cassert>
-#include <map>
 
 #ifdef DEBUG
 #include <iostream>
 #endif
 
-#include "algorithm_classes.h"
 #include "algorithm_inequality_operations.h"
 #include "algorithm_map_operations.h"
 #include "tags.h"
@@ -173,52 +171,4 @@ namespace
       }
       return support;
    }
-}
-
-template <typename Integer, typename TagType>
-Matrix<Integer> panda::algorithm::classesVertexSupport(std::set<Row<Integer>> rows,
-                                                       const Matrix<Integer>& vertices,
-                                                       const Maps& maps,
-                                                       const VertexGroup& group,
-                                                       TagType tag)
-{
-   if (rows.empty())
-   {
-      return Matrix<Integer>();
-   }
-
-   #ifdef DEBUG
-   std::cerr << "[DEBUG] classesVertexSupport: " << rows.size() << " rows, "
-             << vertices.size() << " vertices" << std::endl;
-   #endif
-
-   // Map from canonical support to representative facet
-   std::map<std::vector<std::size_t>, Row<Integer>> canonical_to_representative;
-
-   for (const auto& row : rows)
-   {
-      auto support = facetToVertexSupport(row, vertices);
-      auto canonical = group.canonicalSupport(support);
-
-      if (canonical_to_representative.find(canonical) == canonical_to_representative.end())
-      {
-         canonical_to_representative[canonical] = row;
-      }
-   }
-   #ifdef DEBUG
-   std::cerr << "[DEBUG] classesVertexSupport: calculating representative " << std::endl;
-   #endif
-   Matrix<Integer> result;
-   result.reserve(canonical_to_representative.size());
-   for (auto& pair : canonical_to_representative)
-   {
-      result.push_back(std::move(classRepresentative(pair.second, maps, tag)));
-   }
-
-   #ifdef DEBUG
-   std::cerr << "[DEBUG] classesVertexSupport: reduced " << rows.size()
-             << " rows to " << result.size() << " classes" << std::endl;
-   #endif
-
-   return result;
 }

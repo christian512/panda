@@ -43,10 +43,10 @@ Row<Integer> panda::JobManager<Integer, TagType>::get() const
    #pragma clang diagnostic ignored "-Wunused-parameter"
 #endif
 template <typename Integer, typename TagType>
-panda::JobManager<Integer, TagType>::JobManager(const Names& names_, const int number_of_processors, const int threads_per_processor)
+panda::JobManager<Integer, TagType>::JobManager(const Names& names_, const int number_of_processors, const int threads_per_processor, const std::optional<VertexGroup>& vertex_group_, const Matrix<Integer>& vertices_)
 :
    communication(),
-   rows(names_),
+   rows(names_, vertex_group_, vertices_),
    request_threads() // vital implementation detail: threads may access other members, hence, the threads must be destroyed first (Destruction in reverse order of construction).
 {
    #ifdef MPI_SUPPORT

@@ -6,13 +6,10 @@
 
 #pragma once
 
-#include <set>
 #include <vector>
 
 #include "maps.h"
 #include "matrix.h"
-#include "row.h"
-#include "vertex_group.h"
 
 namespace panda
 {
@@ -30,15 +27,6 @@ namespace panda
       /// - maps are empty
       template <typename Integer>
       std::vector<std::vector<std::size_t>> computeVertexPermutations(const Maps& maps, const Matrix<Integer>& vertices);
-
-      /// Reduce a set of facets to equivalence class representatives
-      /// using vertex-support-based canonical forms under a vertex group.
-      template <typename Integer, typename TagType>
-      Matrix<Integer> classesVertexSupport(std::set<Row<Integer>> rows,
-                                           const Matrix<Integer>& vertices,
-                                           const Maps& maps,
-                                           const VertexGroup& group,
-                                           TagType tag);
    }
 }
 

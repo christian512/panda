@@ -7,6 +7,7 @@
 #pragma once
 
 #include <list>
+#include <optional>
 
 #include "communication.h"
 #include "joining_thread.h"
@@ -15,6 +16,7 @@
 #include "names.h"
 #include "row.h"
 #include "tags.h"
+#include "vertex_group.h"
 
 namespace panda
 {
@@ -33,7 +35,7 @@ namespace panda
          /// (only relevant for printing inequalities).
          /// The second argument must be the number of processors,
          /// the third argument must be the number of threads per processor.
-         JobManager(const Names&, const int, const int);
+         JobManager(const Names&, const int, const int, const std::optional<VertexGroup>& vertex_group = std::nullopt, const Matrix<Integer>& vertices = Matrix<Integer>{});
       private:
          Communication communication;
          mutable List<Integer, TagType> rows;
