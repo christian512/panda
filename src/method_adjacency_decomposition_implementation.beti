@@ -16,10 +16,10 @@ namespace panda
 {
    namespace implementation
    {
-      EXTERN template void adjacencyDecomposition<JobManager>(int, char**, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>>&, tag::facet);
-      EXTERN template void adjacencyDecomposition<JobManager>(int, char**, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>>&, tag::vertex);
-      EXTERN template void adjacencyDecomposition<JobManagerProxy>(int, char**, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>>&, tag::facet);
-      EXTERN template void adjacencyDecomposition<JobManagerProxy>(int, char**, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>>&, tag::vertex);
+      EXTERN template void adjacencyDecomposition<JobManager>(int, char**, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>, std::optional<VertexGroup>>&, tag::facet);
+      EXTERN template void adjacencyDecomposition<JobManager>(int, char**, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>, std::optional<VertexGroup>>&, tag::vertex);
+      EXTERN template void adjacencyDecomposition<JobManagerProxy>(int, char**, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>, std::optional<VertexGroup>>&, tag::facet);
+      EXTERN template void adjacencyDecomposition<JobManagerProxy>(int, char**, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>, std::optional<VertexGroup>>&, tag::vertex);
    }
 }
 

@@ -44,6 +44,8 @@ namespace panda
          bool isKeywordMaps(const std::string&) noexcept;
          /// Returns true if the string is a keyword for names.
          bool isKeywordNames(const std::string&) noexcept;
+         /// Returns true if the string is a keyword for vertex permutations.
+         bool isKeywordVertexPermutations(const std::string&) noexcept;
       }
    }
 }

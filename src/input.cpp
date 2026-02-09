@@ -10,7 +10,9 @@
 #include <cassert>
 #include <cstring>
 #include <fstream>
+#include <iostream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -29,7 +31,9 @@
 #include "input_order.h"
 #include "input_validity.h"
 #include "input_vertex.h"
+#include "input_vertex_permutation.h"
 #include "istream_peek_line.h"
+#include "vertex_group.h"
 
 using namespace panda;
 
@@ -112,7 +116,7 @@ namespace
 }
 
 template <>
-std::tuple<Vertices<int>, Names, Maps, Inequalities<int>> panda::input::vertices<int>(int argc, char** argv)
+std::tuple<Vertices<int>, Names, Maps, Inequalities<int>, std::optional<VertexGroup>> panda::input::vertices<int>(int argc, char** argv)
 {
    const auto filename = getFilename(argc, argv);
    std::ifstream file(filename.c_str());
@@ -125,6 +129,9 @@ std::tuple<Vertices<int>, Names, Maps, Inequalities<int>> panda::input::vertices
    std::size_t dimension = std::numeric_limits<std::size_t>::max();
    Names names;
    Maps maps;
+   bool has_maps = false;
+   bool has_vertex_permutations = false;
+   std::vector<std::vector<std::size_t>> vertex_permutation_generators;
    if ( !implementation::containsKeywords(file) )
    {
       throw std::invalid_argument("An inner description must be given in PANDA format.");
@@ -141,7 +148,25 @@ std::tuple<Vertices<int>, Names, Maps, Inequalities<int>> panda::input::vertices
       }
       else if ( implementation::isKeywordMaps(token) )
       {
+         if ( has_vertex_permutations )
+         {
+            throw std::invalid_argument("Cannot have both \"Maps\" and \"Vertex Permutations\" in the same file.");
+         }
+         has_maps = true;
          maps = implementation::maps(file, names);
+      }
+      else if ( implementation::isKeywordVertexPermutations(token) )
+      {
+         if ( has_maps )
+         {
+            throw std::invalid_argument("Cannot have both \"Maps\" and \"Vertex Permutations\" in the same file.");
+         }
+         has_vertex_permutations = true;
+         if ( conv.empty() && cone.empty() )
+         {
+            throw std::invalid_argument("\"Vertex Permutations\" section must come after \"Vertices\" or \"Rays\" section.");
+         }
+         vertex_permutation_generators = implementation::vertexPermutations(file, conv.size() + cone.size());
       }
       else if ( implementation::isKeywordConvexHull(token) )
       {
@@ -176,11 +201,16 @@ std::tuple<Vertices<int>, Names, Maps, Inequalities<int>> panda::input::vertices
    {
       input::implementation::checkValidityOfInequalities(vertices, known_facets);
    }
-   return std::make_tuple(vertices, names, maps, known_facets);
+   std::optional<VertexGroup> vertex_group;
+   if ( !vertex_permutation_generators.empty() )
+   {
+      vertex_group.emplace(vertex_permutation_generators, vertices.size());
+   }
+   return std::make_tuple(vertices, names, maps, known_facets, vertex_group);
 }
 
 template <>
-std::tuple<Inequalities<int>, Names, Maps, Vertices<int>> panda::input::inequalities<int>(int argc, char** argv)
+std::tuple<Inequalities<int>, Names, Maps, Vertices<int>, std::optional<VertexGroup>> panda::input::inequalities<int>(int argc, char** argv)
 {
    const auto filename = getFilename(argc, argv);
    std::ifstream file(filename.c_str());
@@ -193,6 +223,9 @@ std::tuple<Inequalities<int>, Names, Maps, Vertices<int>> panda::input::inequali
    std::size_t dimension = std::numeric_limits<std::size_t>::max();
    Names names;
    Maps maps;
+   bool has_maps = false;
+   bool has_vertex_permutations = false;
+   std::vector<std::vector<std::size_t>> vertex_permutation_generators;
    if ( !implementation::containsKeywords(file) )
    {
       throw std::invalid_argument("An outer description must be given in PANDA format.");
@@ -209,7 +242,17 @@ std::tuple<Inequalities<int>, Names, Maps, Vertices<int>> panda::input::inequali
       }
       else if ( implementation::isKeywordMaps(token) )
       {
+         if ( has_vertex_permutations )
+         {
+            throw std::invalid_argument("Cannot have both \"Maps\" and \"Vertex Permutations\" in the same file.");
+         }
+         has_maps = true;
          maps = implementation::maps(file, names);
+      }
+      else if ( implementation::isKeywordVertexPermutations(token) )
+      {
+         // Vertex Permutations are not supported for inequality input (facet enumeration mode)
+         throw std::invalid_argument("\"Vertex Permutations\" are only supported with vertex input files, not inequality files.");
       }
       else if ( implementation::isKeywordEquations(token) )
       {
@@ -243,7 +286,7 @@ std::tuple<Inequalities<int>, Names, Maps, Vertices<int>> panda::input::inequali
    {
       input::implementation::checkValidityOfVertices(inequalities, known_vertices);
    }
-   return std::make_tuple(inequalities, names, maps, known_vertices);
+   return std::make_tuple(inequalities, names, maps, known_vertices, std::optional<VertexGroup>{});
 }
 
 namespace

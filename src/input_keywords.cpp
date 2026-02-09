@@ -43,6 +43,7 @@ bool panda::input::implementation::isKeyword(const std::string& string) noexcept
            isKeywordReducedInequalities(string) ||
            isKeywordMaps(string) ||
            isKeywordNames(string) ||
+           isKeywordVertexPermutations(string) ||
            isKeywordEnd(string) );
 }
 
@@ -185,5 +186,15 @@ bool panda::input::implementation::isKeywordNames(const std::string& string) noe
            string == "Indices:" ||
            string == "Names" ||
            string == "Names:");
+}
+
+bool panda::input::implementation::isKeywordVertexPermutations(const std::string& string) noexcept
+{
+   return (string == "VERTEX_PERMUTATIONS" ||
+           string == "VERTEX_PERMUTATIONS:" ||
+           string == "VERTEX_PERMUTATIONS_SECTION" ||
+           string == "VERTEX_PERMUTATIONS_SECTION:" ||
+           string == "VERTEX_PERMUTATION_SECTION" ||
+           string == "VERTEX_PERMUTATION_SECTION:");
 }
 

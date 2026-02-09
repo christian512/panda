@@ -33,13 +33,13 @@ using namespace panda;
 namespace
 {
    template <typename Integer>
-   std::pair<Equations<Integer>, Maps> reduce(const JobManager<Integer, tag::facet>&, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>>& data);
+   std::pair<Equations<Integer>, Maps> reduce(const JobManager<Integer, tag::facet>&, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>, std::optional<VertexGroup>>& data);
 
    template <typename Integer>
-   std::pair<Equations<Integer>, Maps> reduce(const JobManagerProxy<Integer, tag::facet>&, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>>& data);
+   std::pair<Equations<Integer>, Maps> reduce(const JobManagerProxy<Integer, tag::facet>&, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>, std::optional<VertexGroup>>& data);
 
    template <typename Integer, template <typename, typename> class JobManagerType>
-   std::pair<Equations<Integer>, Maps> reduce(const JobManagerType<Integer, tag::vertex>&, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>>& data);
+   std::pair<Equations<Integer>, Maps> reduce(const JobManagerType<Integer, tag::vertex>&, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>, std::optional<VertexGroup>>& data);
 
    template <typename Integer>
    std::future<void> initializePool(JobManager<Integer, tag::facet>&, const Matrix<Integer>&, const Maps&, const Matrix<Integer>&, const Equations<Integer>&);
@@ -53,7 +53,7 @@ namespace
 }
 
 template <template <typename, typename> class JobManagerType, typename Integer, typename TagType>
-void panda::implementation::adjacencyDecomposition(int argc, char** argv, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>>& data, TagType tag)
+void panda::implementation::adjacencyDecomposition(int argc, char** argv, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>, std::optional<VertexGroup>>& data, TagType tag)
 {
    const auto node_count = mpi::getSession().getNumberOfNodes();
    const auto thread_count = concurrency::numberOfThreads(argc, argv);
@@ -64,11 +64,12 @@ void panda::implementation::adjacencyDecomposition(int argc, char** argv, const 
    const auto& names = std::get<1>(data);
    const auto& original_maps = std::get<2>(data);
    const auto& known_output = std::get<3>(data);
-   // Build vertex permutation group from original maps BEFORE normalization
-   const auto vertex_group = VertexGroup::create(original_maps, input);
+   const auto& input_vertex_group = std::get<4>(data);
+   // Use pre-built vertex group from input if available, otherwise try to build from maps
+   const auto vertex_group = input_vertex_group ? input_vertex_group : VertexGroup::create(original_maps, input);
    if ( vertex_group )
    {
-      std::cerr << "Using permutalib for equivalence checking (pure permutation symmetries detected)\n";
+      std::cerr << "Using permutalib for equivalence checking\n";
    }
    JobManagerType<Integer, TagType> job_manager(names, node_count, thread_count, vertex_group, input);
    const auto reduced_data = reduce(job_manager, data);
@@ -100,7 +101,7 @@ void panda::implementation::adjacencyDecomposition(int argc, char** argv, const 
 namespace
 {
    template <typename Integer, typename Callable>
-   std::pair<Equations<Integer>, Maps> reduce(const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>>& data, Callable&& callable)
+   std::pair<Equations<Integer>, Maps> reduce(const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>, std::optional<VertexGroup>>& data, Callable&& callable)
    {
       const auto& vertices = std::get<0>(data);
       const auto& names = std::get<1>(data);
@@ -116,7 +117,7 @@ namespace
    }
 
    template <typename Integer>
-   std::pair<Equations<Integer>, Maps> reduce(const JobManager<Integer, tag::facet>&, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>>& data)
+   std::pair<Equations<Integer>, Maps> reduce(const JobManager<Integer, tag::facet>&, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>, std::optional<VertexGroup>>& data)
    {
       return reduce(data, [](const Matrix<Integer>& equations, const Names& names)
       {
@@ -127,13 +128,13 @@ namespace
    }
 
    template <typename Integer>
-   std::pair<Equations<Integer>, Maps> reduce(const JobManagerProxy<Integer, tag::facet>&, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>>& data)
+   std::pair<Equations<Integer>, Maps> reduce(const JobManagerProxy<Integer, tag::facet>&, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>, std::optional<VertexGroup>>& data)
    {
       return reduce(data, [](const Matrix<Integer>&, const Names&) {});
    }
 
    template <typename Integer, template <typename, typename> class JobManagerType>
-   std::pair<Equations<Integer>, Maps> reduce(const JobManagerType<Integer, tag::vertex>&, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>>& data)
+   std::pair<Equations<Integer>, Maps> reduce(const JobManagerType<Integer, tag::vertex>&, const std::tuple<Matrix<Integer>, Names, Maps, Matrix<Integer>, std::optional<VertexGroup>>& data)
    {
       const auto& original_maps = std::get<2>(data);
       return std::make_pair(Equations<Integer>{}, original_maps);
