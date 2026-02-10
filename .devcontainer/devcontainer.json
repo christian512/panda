@@ -25,10 +25,12 @@
 			}
 		}
 	},
-
+	
 	"remoteUser": "vscode",
 
 	"mounts": [
 		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
-	]
+	],
+
+	"postCreateCommand": "sudo apt-get update && sudo apt-get install -y sagemath"
 }
