@@ -5,6 +5,14 @@ PANDA supports two build systems: CMake and gnumake. We highly recommend using C
 
 Tested compilers include: `g++-4.7`, `g++-4.8`, `g++-4.9`, `g++-5`, `clang++-3.4`, `clang++-3.5`, `clang++-3.6`. It is definitively incompatible with version of `g++` prior to version `4.6`.
 PANDA was tested on Linux 32bit and 64bit platforms as well as Mac OS X.
+
+### Retrieving PANDA
+
+Note that this repository contains a submodule. Thus you need to clone with:
+ ```
+ > git clone --recursive https://github.com/christian512/panda.git
+ ```
+
 ### Installation using CMake
 We recommend performing out-of-source builds.
 
