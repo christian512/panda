@@ -12,6 +12,7 @@
 #include <iostream>
 #include <sstream>
 
+#include "algorithm_inequality_operations.h"
 #include "algorithm_row_operations.h"
 
 using namespace panda;
@@ -60,7 +61,33 @@ void panda::List<Integer, TagType>::put(const Matrix<Integer>& matrix) const
 template <typename Integer, typename TagType>
 void panda::List<Integer, TagType>::put(const Row<Integer>& row) const
 {
+   // If vertex_group is available, compute canonical support outside the lock
+   std::vector<std::size_t> canonical;
+   if ( vertex_group )
+   {
+      std::vector<std::size_t> support;
+      for ( std::size_t i = 0; i < vertices.size(); ++i )
+      {
+         if ( algorithm::distance(row, vertices[i]) == 0 )
+         {
+            support.push_back(i);
+         }
+      }
+      canonical = vertex_group->canonicalSupport(support);
+   }
+
    std::lock_guard<std::mutex> lock(mutex);
+
+   // Canonical support dedup: skip if this canonical form was already seen
+   if ( vertex_group )
+   {
+      auto result = seen_supports.insert(std::move(canonical));
+      if ( !result.second )
+      {
+         return;
+      }
+   }
+
    Iterator it;
    bool added;
    std::tie(it, added) = rows.insert(row);
@@ -117,15 +144,18 @@ Row<Integer> panda::List<Integer, TagType>::get() const
 }
 
 template <typename Integer, typename TagType>
-panda::List<Integer, TagType>::List(const Names& names_)
+panda::List<Integer, TagType>::List(const Names& names_, const std::optional<VertexGroup>& vertex_group_, const Matrix<Integer>& vertices_)
 :
    names(names_),
+   vertex_group(vertex_group_),
+   vertices(vertices_),
    mutex(),
    workers(1),
    condition(),
    rows(),
    iterators(),
-   counter(0)
+   counter(0),
+   seen_supports()
 {
 }
 

@@ -17,11 +17,11 @@ namespace panda
    EXTERN template class JobManagerProxy<Integer, tag::facet>;
    EXTERN template void JobManagerProxy<Integer, tag::facet>::put(const Matrix<Integer>&) const;
    EXTERN template Row<Integer> JobManagerProxy<Integer, tag::facet>::get() const;
-   EXTERN template JobManagerProxy<Integer, tag::facet>::JobManagerProxy(const Names&, const int, const int);
+   EXTERN template JobManagerProxy<Integer, tag::facet>::JobManagerProxy(const Names&, const int, const int, const std::optional<panda::VertexGroup>&, const Matrix<Integer>&);
 
    EXTERN template class JobManagerProxy<Integer, tag::vertex>;
    EXTERN template void JobManagerProxy<Integer, tag::vertex>::put(const Matrix<Integer>&) const;
    EXTERN template Row<Integer> JobManagerProxy<Integer, tag::vertex>::get() const;
-   EXTERN template JobManagerProxy<Integer, tag::vertex>::JobManagerProxy(const Names&, const int, const int);
+   EXTERN template JobManagerProxy<Integer, tag::vertex>::JobManagerProxy(const Names&, const int, const int, const std::optional<panda::VertexGroup>&, const Matrix<Integer>&);
 }
 

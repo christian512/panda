@@ -40,7 +40,7 @@ panda::Row<Integer> panda::JobManagerProxy<Integer, TagType>::get() const
 #endif
 
 template <typename Integer, typename TagType>
-panda::JobManagerProxy<Integer, TagType>::JobManagerProxy(const Names&, const int, const int)
+panda::JobManagerProxy<Integer, TagType>::JobManagerProxy(const Names&, const int, const int, const std::optional<VertexGroup>&, const Matrix<Integer>&)
 :
    communication()
 {

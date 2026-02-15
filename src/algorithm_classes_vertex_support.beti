@@ -1,0 +1,23 @@
+
+//-------------------------------------------------------------------------------//
+// Author: Christian Staufenbiel                                                 //
+// License: CC BY-NC 4.0 http://creativecommons.org/licenses/by-nc/4.0/legalcode //
+//-------------------------------------------------------------------------------//
+
+#ifndef EXTERN
+   #error EXTERN must be defined
+#endif
+
+#ifndef Integer
+   #error Integer must be defined
+#endif
+
+#include "tags.h"
+
+namespace panda
+{
+   namespace algorithm
+   {
+      EXTERN template std::vector<std::vector<std::size_t>> computeVertexPermutations(const Maps&, const Matrix<Integer>&);
+   }
+}

@@ -86,6 +86,15 @@ namespace
                 << "\t-t <n>\n\t--threads=<n>\n"
                 << "\t\twith <n> being a natural number greater than zero.\n"
                 << '\n'
+                << "\t-r <n>\n\t--recursion-depth=<n>\n"
+                << "\t\tsets the recursion depth for recursive adjacency decomposition (default: 0, disabled).\n"
+                << '\n'
+                << "\t--recursion-min-vertices=<n>\n"
+                << "\t\tminimum number of vertices on a facet to trigger a recursive call (default: 0).\n"
+                << '\n'
+                << "\t--sampling\n"
+                << "\t\tin recursive AD, only analyse initial facets without enqueuing newly found ones.\n"
+                << '\n'
                 << "\t-h <arg>\n\t--help=<arg>\n\t--help-command=<arg>\n"
                 << "\t\twith <arg> being a valid command (i.e. one occuring in this list).\n"
                 << '\n'

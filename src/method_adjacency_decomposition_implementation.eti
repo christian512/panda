@@ -5,9 +5,11 @@
 //-------------------------------------------------------------------------------//
 
 #include <cstdint>
+#include <optional>
 
 #include "job_manager.h"
 #include "job_manager_proxy.h"
+#include "vertex_group.h"
 
 #ifdef COMPILE_TEMPLATE_METHOD_ADJACENCY_DECOMPOSITION_IMPLEMENTATION
    #define EXTERN

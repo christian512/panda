@@ -1,0 +1,36 @@
+{
+	"name": "PANDA C++ Development",
+	"image": "mcr.microsoft.com/devcontainers/cpp:debian-12",
+
+	"features": {
+		"ghcr.io/devcontainers/features/common-utils:2": {
+			"installZsh": true,
+			"installOhMyZsh": true,
+			"upgradePackages": true
+		}
+	},
+
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-vscode.cpptools",
+				"ms-vscode.cpptools-extension-pack",
+				"ms-vscode.cmake-tools",
+				"twxs.cmake",
+				"ms-vscode.makefile-tools"
+			],
+			"settings": {
+				"cmake.configureOnOpen": false,
+				"C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+			}
+		}
+	},
+	
+	"remoteUser": "vscode",
+
+	"mounts": [
+		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+	],
+
+	"postCreateCommand": "sudo apt-get update && sudo apt-get install -y sagemath"
+}
