@@ -6,6 +6,14 @@ PANDA supports two build systems: CMake and gnumake. We highly recommend using C
 Tested compilers include: `g++-4.7`, `g++-4.8`, `g++-4.9`, `g++-5`, `clang++-3.4`, `clang++-3.5`, `clang++-3.6`. It is definitively incompatible with version of `g++` prior to version `4.6`.
 PANDA was tested on Linux 32bit and 64bit platforms as well as Mac OS X.
 
+### Prerequisites
+The dependency `permutalib` makes use of `boost` and `gmp`. Make sure both libraries are available.
+To install on a debian based system use: 
+
+```
+> apt install libboost-dev-all libgmp-dev
+```
+
 ### Retrieving PANDA
 
 Note that this repository contains a submodule. Thus you need to clone with:
@@ -41,6 +49,8 @@ If you encounter errors using PANDA, please perform a run in debug mode. To buil
 > make
 ```
 ### Installation using gnumake
+
+**NOTE: THIS IS CURRENTLY NOT TESTED!**
 
 On a standard Linux or Mac system, `./configure; make;` should suffice to install PANDA. Use `make -j 4` for a parallel build (in this case with 4 processes). If for any reason there is an error with this, see the next section for manual installation advice.
 ### Troubleshooting
