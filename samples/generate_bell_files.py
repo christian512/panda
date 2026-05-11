@@ -1,5 +1,13 @@
 """
-Generates a bipartite Bell Polytope for given number of inputs and outputs.
+Generates a bipartite Bell Polytope for given number of inputs and outputs,
+using Collins-Gisin (CG) parameterization for a full-dimensional representation.
+
+The CG coordinates for a behavior are:
+  - p(a|x)   for a=0..o_A-2, x=0..m_A-1   (A marginals, last outcome dropped)
+  - p(b|y)   for b=0..o_B-2, y=0..m_B-1   (B marginals, last outcome dropped)
+  - p(a,b|x,y) for a=0..o_A-2, b=0..o_B-2, x=0..m_A-1, y=0..m_B-1
+
+For deterministic behaviors all entries are 0 or 1.
 
 Usage: python generate_bell_files.py <inputs_a> <inputs_b> <outputs_a> <outputs_b>
 Example: python generate_bell_files.py 2 2 2 2
@@ -10,131 +18,136 @@ from itertools import product
 import numpy as np
 
 
-def get_deterministic_behaviors_two_party(inputs_a, inputs_b, outputs_a, outputs_b):
-    """ Returns all deterministic behaviors corresponding to inputs/outputs for two parties"""
-    dim = len(inputs_a) * len(inputs_b) * len(outputs_a) * len(outputs_b)
-    # hidden variables
-    lhvs_a = product(outputs_a, repeat=len(inputs_a))
-    lhvs_b = product(outputs_b, repeat=len(inputs_b))
-    deterministics = []
-    for lhv_a, lhv_b in product(lhvs_a, lhvs_b):
-            # initialize empty behavior
-            counter = 0
-            d = np.zeros(dim)
-            # iterate over possible outcomes and check whether its defined by the LHV
-            for a, b in product(range(len(outputs_a)), range(len(outputs_b))):
-                for x, y in product(range(len(inputs_a)), range(len(inputs_b))):
-                    if lhv_a[x] == a and lhv_b[y] == b:
-                        d[counter] = 1.0
-                    counter += 1
-            deterministics.append(d)
-    # check length
-    assert len(deterministics) == (len(outputs_a) ** len(inputs_a)) * (len(outputs_b) ** len(inputs_b)), deterministics
-    return np.array(deterministics)
+def cg_vector(lhv_a, lhv_b, m_A, m_B, o_A, o_B):
+    """Compute Collins-Gisin coordinates for a deterministic behavior (lhv_a, lhv_b)."""
+    components = []
+    for a in range(o_A - 1):
+        for x in range(m_A):
+            components.append(1 if lhv_a[x] == a else 0)
+    for b in range(o_B - 1):
+        for y in range(m_B):
+            components.append(1 if lhv_b[y] == b else 0)
+    for a in range(o_A - 1):
+        for b in range(o_B - 1):
+            for x in range(m_A):
+                for y in range(m_B):
+                    components.append(1 if (lhv_a[x] == a and lhv_b[y] == b) else 0)
+    return np.array(components, dtype=int)
 
-def get_relabelling_generators(inputs_a, inputs_b, outputs_a, outputs_b):
-    """ Returns a set of relabelling generators for the symmetry group """
-    generators = []
-    # setup configurations
-    configurations = [(a, b, x, y) for a, b, x, y in product(outputs_a, outputs_b, inputs_a, inputs_b)]
-    # set the first inputs
-    first_x, first_y = inputs_a[0], inputs_b[0]
-    # set first outputs
-    first_a, first_b = outputs_a[0], outputs_b[0]
-    # relabel each input x to the first input
-    for curr_x in inputs_a:
-        if curr_x == first_x:
-            continue
-        perm = list(range(len(configurations)))
-        for a, b, x, y in configurations:
-            if x == curr_x:
-                # configuration of current setting
-                idx_old = configurations.index((a, b, x, y))
-                # same configuration where x is first_x
-                idx_new = configurations.index((a, b, first_x, y))
-                perm[idx_old] = idx_new
-                perm[idx_new] = idx_old
-        generators.append(perm)
-    # relabel each input y to the first input
-    for curr_y in inputs_b:
-        if curr_y == first_y:
-            continue
-        perm = list(range(len(configurations)))
-        for a, b, x, y in configurations:
-            if y == curr_y:
-                # configuration of current setting
-                idx_old = configurations.index((a, b, x, y))
-                # configuration where y is first_y
-                idx_new = configurations.index((a, b, x, first_y))
-                perm[idx_old] = idx_new
-                perm[idx_new] = idx_old
-        generators.append(perm)
-    # relabel the first output of first_x with every other output
-    for curr_a in outputs_a:
-        if curr_a == first_a:
-            continue
-        perm = list(range(len(configurations)))
-        for a, b, x, y in configurations:
-            if x == first_x and a == curr_a:
-                # current index
-                idx_old = configurations.index((a, b, x, y))
-                # idx where a is replaced with the first index
-                idx_new = configurations.index((first_a, b, x, y))
-                # change perm
-                perm[idx_old] = idx_new
-                perm[idx_new] = idx_old
-        generators.append(perm)
-    # relabel the first output of first_y with every other output
-    for curr_b in outputs_b:
-        if curr_b == first_b:
-            continue
-        perm = list(range(len(configurations)))
-        for a, b, x, y in configurations:
-            if y == first_y and b == curr_b:
-                # current index
-                idx_old = configurations.index((a, b, x, y))
-                # idx where b is replaced with the first output
-                idx_new = configurations.index((a, first_b, x, y))
-                # change perm
-                perm[idx_old] = idx_new
-                perm[idx_new] = idx_old
-        generators.append(perm)
-    # exchange of parties if number of inputs and outputs is equal on both sides
-    if len(inputs_a) == len(inputs_b) and len(outputs_a) == len(outputs_b):
-        perm = list(range(len(configurations)))
-        for a, b, x, y in configurations:
-            idx_old = configurations.index((a, b, x, y))
-            idx_new = configurations.index((b, a, y, x))
-            perm[idx_old] = idx_new
-            perm[idx_new] = idx_old
-        generators.append(perm)
-    return np.array(generators, dtype=int)
 
-def write_panda_file(vertices, relabeling_generators, filename: str = 'bell'):
-    """ Writes Vertices and Maps in PANDA input format.
+def cg_names(m_A, m_B, o_A, o_B):
+    """Return coordinate names for the CG parameterization."""
+    names = []
+    for a in range(o_A - 1):
+        for x in range(m_A):
+            names.append(f'pA{a}x{x}')
+    for b in range(o_B - 1):
+        for y in range(m_B):
+            names.append(f'pB{b}y{y}')
+    for a in range(o_A - 1):
+        for b in range(o_B - 1):
+            for x in range(m_A):
+                for y in range(m_B):
+                    names.append(f'pAB{a}{b}x{x}y{y}')
+    return names
 
-    PANDA Maps are permutations on coordinate positions expressed via variable names.
-    Each line in the Maps section has one token per coordinate: the i-th token is the
-    name of the variable that coordinate i maps to.
-    E.g. for names [p0, p1, p2], the line "p2 p0 p1" means p0->p2, p1->p0, p2->p1.
+
+def get_deterministic_behaviors_cg(m_A, m_B, o_A, o_B):
+    """Returns (sorted_vectors, strategies, vec_to_idx) in CG coordinates.
+
+    sorted_vectors: numpy array, one CG vector per row, lexicographically sorted
+    strategies:     list of (lhv_a, lhv_b) tuples in the same order
+    vec_to_idx:     dict mapping tuple(CG vector) -> sorted index
     """
-    dim = vertices.shape[1]
-    names = ['p' + str(i) for i in range(dim)]
+    strategies = []
+    vectors = []
+    for lhv_a, lhv_b in product(product(range(o_A), repeat=m_A),
+                                 product(range(o_B), repeat=m_B)):
+        vectors.append(cg_vector(lhv_a, lhv_b, m_A, m_B, o_A, o_B))
+        strategies.append((lhv_a, lhv_b))
+
+    vectors = np.array(vectors, dtype=int)
+    sort_idx = np.lexsort(np.rot90(vectors))
+    vectors = vectors[sort_idx]
+    strategies = [strategies[i] for i in sort_idx]
+    vec_to_idx = {tuple(v): i for i, v in enumerate(vectors)}
+    return vectors, strategies, vec_to_idx
+
+
+def get_vertex_permutations_cg(strategies, vec_to_idx, m_A, m_B, o_A, o_B):
+    """Returns relabeling generators as permutations on sorted vertex indices.
+
+    Generators:
+      - swap input x <-> 0 for party A (m_A-1 generators)
+      - swap input y <-> 0 for party B (m_B-1 generators)
+      - swap output 0 <-> a at x=0 for party A (o_A-1 generators)
+      - swap output 0 <-> b at y=0 for party B (o_B-1 generators)
+      - party exchange if m_A==m_B and o_A==o_B (1 generator)
+    """
+    def lookup(lhv_a, lhv_b):
+        return vec_to_idx[tuple(cg_vector(lhv_a, lhv_b, m_A, m_B, o_A, o_B))]
+
+    generators = []
+
+    for x_swap in range(1, m_A):
+        perm = []
+        for lhv_a, lhv_b in strategies:
+            a_new = list(lhv_a)
+            a_new[0], a_new[x_swap] = a_new[x_swap], a_new[0]
+            perm.append(lookup(tuple(a_new), lhv_b))
+        generators.append(perm)
+
+    for y_swap in range(1, m_B):
+        perm = []
+        for lhv_a, lhv_b in strategies:
+            b_new = list(lhv_b)
+            b_new[0], b_new[y_swap] = b_new[y_swap], b_new[0]
+            perm.append(lookup(lhv_a, tuple(b_new)))
+        generators.append(perm)
+
+    for a_swap in range(1, o_A):
+        perm = []
+        for lhv_a, lhv_b in strategies:
+            a_new = list(lhv_a)
+            if a_new[0] == 0:
+                a_new[0] = a_swap
+            elif a_new[0] == a_swap:
+                a_new[0] = 0
+            perm.append(lookup(tuple(a_new), lhv_b))
+        generators.append(perm)
+
+    for b_swap in range(1, o_B):
+        perm = []
+        for lhv_a, lhv_b in strategies:
+            b_new = list(lhv_b)
+            if b_new[0] == 0:
+                b_new[0] = b_swap
+            elif b_new[0] == b_swap:
+                b_new[0] = 0
+            perm.append(lookup(lhv_a, tuple(b_new)))
+        generators.append(perm)
+
+    if m_A == m_B and o_A == o_B:
+        perm = [lookup(lhv_b, lhv_a) for lhv_a, lhv_b in strategies]
+        generators.append(perm)
+
+    return generators
+
+
+def write_panda_file(vectors, names, vertex_perms, filename):
+    """Writes Names, VERTEX_PERMUTATIONS, and Vertices in PANDA input format."""
     with open(filename, 'w', encoding='utf-8') as f:
         f.write('Names:\n')
         f.write(' '.join(names) + '\n')
         f.write('\n')
-        f.write('Maps:\n')
-        for perm in relabeling_generators:
-            # perm[i] = j means coordinate i is mapped to coordinate j,
-            # so the image of variable i is variable perm[i].
-            map_line = ' '.join(names[perm[i]] for i in range(dim))
-            f.write(map_line + '\n')
-        f.write('\n')
         f.write('Vertices:\n')
-        for vertex in vertices:
-            s = ' '.join(str(int(x)) for x in vertex)
-            f.write(s + '\n')
+        for v in vectors:
+            f.write(' '.join(str(int(x)) for x in v) + '\n')
+        f.write('\n')
+        f.write('VERTEX_PERMUTATIONS:\n')
+        for perm in vertex_perms:
+            f.write(' '.join(str(i) for i in perm) + '\n')
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate a bipartite Bell Polytope in PANDA format.')
@@ -144,19 +157,18 @@ if __name__ == '__main__':
     parser.add_argument('outputs_b', type=int, help='Number of outputs for party B')
     args = parser.parse_args()
 
-    inputs_a = list(range(args.inputs_a))
-    inputs_b = list(range(args.inputs_b))
-    outputs_a = list(range(args.outputs_a))
-    outputs_b = list(range(args.outputs_b))
+    m_A, m_B, o_A, o_B = args.inputs_a, args.inputs_b, args.outputs_a, args.outputs_b
 
-    basename = '{}{}{}{}'.format(args.inputs_a, args.inputs_b, args.outputs_a, args.outputs_b)
+    basename = '{}{}{}{}'.format(m_A, m_B, o_A, o_B)
     outdir = os.path.join(os.path.dirname(__file__), 'panda_format', 'bell')
     os.makedirs(outdir, exist_ok=True)
     filepath = os.path.join(outdir, basename)
 
-    vertices = get_deterministic_behaviors_two_party(inputs_a, inputs_b, outputs_a, outputs_b)
-    vertices = vertices[np.lexsort(np.rot90(vertices))]
-    relabeling_generators = get_relabelling_generators(inputs_a, inputs_b, outputs_a, outputs_b)
+    vectors, strategies, vec_to_idx = get_deterministic_behaviors_cg(m_A, m_B, o_A, o_B)
+    vertex_perms = get_vertex_permutations_cg(strategies, vec_to_idx, m_A, m_B, o_A, o_B)
+    names = cg_names(m_A, m_B, o_A, o_B)
 
-    write_panda_file(vertices, relabeling_generators, filepath)
-    print('Wrote PANDA file: ' + filepath)
+    write_panda_file(vectors, names, vertex_perms, filepath)
+    print(f'Wrote PANDA file: {filepath}')
+    print(f'  Vertices: {len(vectors)}  (CG dimension: {vectors.shape[1]})')
+    print(f'  Symmetry generators: {len(vertex_perms)}')
