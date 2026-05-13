@@ -11,7 +11,7 @@ The dependency `permutalib` makes use of `boost` and `gmp`. Make sure both libra
 To install on a debian based system use: 
 
 ```
-> apt install libboost-dev-all libgmp-dev
+> apt install libboost-all-dev libgmp-dev
 ```
 
 ### Retrieving PANDA
