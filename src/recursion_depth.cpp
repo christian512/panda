@@ -41,7 +41,7 @@ int panda::recursion::depth(int argc, char** argv)
       {
          return interpretParameter(argv[i] + 18, "recursion-depth");
       }
-      else if ( std::strncmp(argv[i], "-r", 2) == 0 || std::strncmp(argv[i], "--r", 3) == 0 )
+      else if ( std::strncmp(argv[i], "-r", 2) == 0 || std::strncmp(argv[i], "--recursion-depth", 17) == 0 )
       {
          throw std::invalid_argument("Illegal parameter. Did you mean \"-r <n>\" or \"--recursion-depth=<n>\"?");
       }
