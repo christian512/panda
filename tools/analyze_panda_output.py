@@ -46,10 +46,12 @@ picked up from a license at ``~/mosek/mosek.lic``.
 Usage:
     python tools/analyze_panda_output.py results/bell_full_probability/2222
 
-    # a large file: cheap NPA levels, fewer restarts, coarser bisection
+    # a large file: 200 facets drawn at random, cheap NPA levels, fewer
+    # restarts, coarser bisection
     python tools/analyze_panda_output.py results/bell/3333_129M.out.gz \
+        --limit 200 --randomize 7 \
         --npa-level 1+AB --efficiency-level 1+AB --tries 3 \
-        --efficiency-precision 0.01 --limit 200
+        --efficiency-precision 0.01
 
     # skip the (expensive) efficiency stage, or run only it
     python tools/analyze_panda_output.py results/bell_full_probability/3322 \
@@ -67,10 +69,9 @@ import traceback
 from argparse import Namespace
 from pathlib import Path
 
-import numpy as np
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from analysis_stage import analyse_facets, resolve_jobs  # noqa: E402
 from analysis_table import AnalysisTable  # noqa: E402
 from detection_efficiency_npa import (  # noqa: E402
     DEFAULT_TOLERANCE,
@@ -80,7 +81,7 @@ from lower_bound_q_seesaw_full_probability import (  # noqa: E402
     SOLVERS,
     SeesawStage,
     default_out_path,
-    read_inequalities,
+    load_inequalities,
     resolve_scenario,
 )
 from upper_bound_q_npa_full_probability import Level, NPAStage  # noqa: E402
@@ -98,12 +99,13 @@ STAGES = ("seesaw", "npa", "efficiency")
 # owns one flat command line and hands each stage the namespace it expects. The
 # shared options (--limit, --solver, --out, --overwrite) are handled here in the
 # driver, since the per-facet loop is the driver's own.
-def build_stage(name, scenario, args, solver, rng):
+def build_stage(name, scenario, args, solver):
     if name == "seesaw":
         return SeesawStage(
             scenario,
             Namespace(
                 tries=args.tries,
+                seed=args.seed,
                 precision=args.seesaw_precision,
                 max_iter=args.max_iter,
                 verbose=args.verbose,
@@ -111,7 +113,6 @@ def build_stage(name, scenario, args, solver, rng):
                 column="seesaw_lower_bound",
                 noise_column="white_noise_visibility",
             ),
-            rng,
             solver,
         )
     if name == "npa":
@@ -136,6 +137,7 @@ def build_stage(name, scenario, args, solver, rng):
                 # tolerance the bounds use for their violated / not violated
                 # verdict.
                 tolerance=args.efficiency_tolerance,
+                candidates=args.efficiency_candidates,
                 column="detection_efficiency_npa_lifted",
             ),
             solver,
@@ -167,11 +169,10 @@ def bracket_line(table, line, seesaw, npa):
 # --------------------------------------------------------------------------- #
 # Entry point
 # --------------------------------------------------------------------------- #
-def run_file(path, args, solver, rng):
+def run_file(path, args, solver):
     """Analyse every facet in ``path`` with every selected stage, facet first."""
-    inequalities = list(read_inequalities(path, limit=args.limit))
-    if not inequalities:
-        raise SystemExit(f"no inequalities found in {path}")
+    selection = load_inequalities(path, args.limit, args.randomize)
+    inequalities = selection.inequalities
 
     # One scenario for all three stages. The efficiency search ignores the
     # local dimension (it relaxes over all of them), so --dim reaching it is
@@ -179,69 +180,61 @@ def run_file(path, args, solver, rng):
     scenario = resolve_scenario(path, inequalities, args.dim)
     out_path = Path(args.out) if args.out else default_out_path(path)
     table = AnalysisTable.load(out_path)
+    jobs = resolve_jobs(args.jobs)
 
     # Scenario-level setup happens once per stage, not once per facet: the
-    # efficiency stage compiles its NPA problem here, which is the expensive
-    # part of it.
-    stages = [build_stage(name, scenario, args, solver, rng) for name in args.stages]
+    # efficiency stage compiles its NPA problem here, and the workers inherit
+    # it through fork rather than each compiling its own.
+    stages = [build_stage(name, scenario, args, solver) for name in args.stages]
     by_name = {stage.name: stage for stage in stages}
+    for stage in stages:
+        table.ensure_columns(stage.columns)
 
     print(
-        f"{path}: {len(inequalities)} inequalities, "
+        f"{path}: {selection.label}, "
         f"scenario {scenario.label} (settings then outcomes), "
         f"local dimension {scenario.local_dim}"
+        + (f", {jobs} facets at a time" if jobs > 1 else "")
     )
     for stage in stages:
         print(f"  {stage.name}: {stage.describe()}")
     print(f"writing analysis to {out_path}\n")
 
     started = time.time()
-    failures = []  # (line number, stage name, error)
-    reported = set()  # stages whose first failure already printed a traceback
+    failures = []  # (line number, stage name, message)
     completed = 0
+    threshold_found = no_threshold = 0
 
-    for index, parsed in enumerate(inequalities):
-        print(f"[{index + 1}/{len(inequalities)}] line {parsed.line_number}: {parsed.text}")
-        facet_started = time.time()
-        failed = False
-
-        for stage in stages:
-            if not args.overwrite and stage.done(table, parsed.line_number):
-                print(f"  {stage.name}: already present, skipping")
+    for count, outcome in enumerate(
+        analyse_facets(inequalities, stages, table, jobs, args.overwrite), start=1
+    ):
+        parsed = outcome.parsed
+        print(
+            f"[{count}/{len(inequalities)}] line {parsed.line_number}: {parsed.text}"
+        )
+        for name in args.stages:
+            if name in outcome.skipped:
+                print(f"  {name}: already present, skipping")
                 continue
-
-            print(f"  {stage.name}:")
-            try:
-                result = stage.analyse(parsed)
-            except KeyboardInterrupt:
-                # The table is saved after every stage, so an interrupt has
-                # lost nothing beyond the stage in flight.
-                print(
-                    f"\ninterrupted during {stage.name} on line "
-                    f"{parsed.line_number}; partial results are in {out_path}"
-                )
-                return 130
-            except (SystemExit, Exception) as error:  # noqa: BLE001 - see docstring
-                # One bad facet must not cost the whole run, so the failure is
-                # recorded and the next stage still runs. The traceback is
-                # printed once per stage: on a long file, a stage that fails on
-                # every facet would otherwise bury the results.
-                if stage.name not in reported:
-                    traceback.print_exc()
-                    reported.add(stage.name)
-                print(f"    FAILED: {error}")
-                failures.append((parsed.line_number, stage.name, error))
-                failed = True
-                continue
-
-            for line in result.report:
+            print(f"  {name}:")
+            for line in outcome.results[name].report if name in outcome.results else ():
                 print(f"    {line}")
+        for name, message in outcome.failures:
+            print(f"  {name}: FAILED: {message}")
+            failures.append((parsed.line_number, name, message))
 
+        if "efficiency" in outcome.results:
+            if outcome.results["efficiency"].notable:
+                threshold_found += 1
+            else:
+                no_threshold += 1
+
+        if outcome.results:
             table.update(
                 parsed.line_number,
                 inequality=parsed.text,
                 rhs=parsed.rhs,
-                values=result.values,
+                values=outcome.values(),
             )
             table.save(out_path)  # save as we go: long runs stay resumable
 
@@ -250,8 +243,8 @@ def run_file(path, args, solver, rng):
         )
         if bracket:
             print(f"  {bracket}")
-        print(f"  ({time.time() - facet_started:.1f}s)\n")
-        completed += not failed
+        print(f"  ({outcome.seconds:.1f}s)\n")
+        completed += not outcome.failures
 
     print("=" * 78)
     print(
@@ -259,13 +252,12 @@ def run_file(path, args, solver, rng):
         f"{time.time() - started:.1f}s -> {out_path}"
     )
     if "efficiency" in by_name:
-        stage = by_name["efficiency"]
         print(
-            f"detection efficiency: {stage.violated} facets with a threshold, "
-            f"{stage.not_violated} with no violation at eta = {args.efficiency_start:g}"
+            f"detection efficiency: {threshold_found} facets with a threshold, "
+            f"{no_threshold} with no violation at eta = {args.efficiency_start:g}"
         )
-    for line, name, error in failures:
-        print(f"  failed: line {line}, {name}: {error}")
+    for line, name, message in failures:
+        print(f"  failed: line {line}, {name}: {message}")
     return 1 if failures else 0
 
 
@@ -302,6 +294,32 @@ def main(argv=None):
     shared = parser.add_argument_group("shared")
     shared.add_argument(
         "--limit", type=int, default=None, help="only process the first N inequalities"
+    )
+    shared.add_argument(
+        "--randomize",
+        type=int,
+        default=None,
+        metavar="SEED",
+        help=(
+            "draw the --limit inequalities uniformly at random from the whole "
+            "file instead of taking the first ones; the same seed and --limit "
+            "select the same facets in every analysis script, and this seed is "
+            "independent of --seed, which drives the see-saw's restarts"
+        ),
+    )
+    shared.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "analyse N facets at a time in separate processes; 0 or less uses "
+            "every core available to this process. A facet still runs its "
+            "stages in order, one worker per facet, so the results are "
+            "identical to a serial run; they are printed as they finish "
+            "rather than in file order (default: 1)"
+        ),
     )
     shared.add_argument(
         "--solver", choices=sorted(SOLVERS), default="mosek", help="SDP solver"
@@ -371,6 +389,18 @@ def main(argv=None):
         help="upper end of the eta search; facets not violated here are skipped",
     )
     efficiency.add_argument(
+        "--efficiency-candidates",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "search only the N liftings of lowest no-click coefficient sum, "
+            "the heuristic of Cope & Colbeck (arXiv:1812.10017), who use "
+            "N = 10; gives an upper bound on the minimum over all liftings, in "
+            "its own column (default: search every lifting)"
+        ),
+    )
+    efficiency.add_argument(
         "--efficiency-precision",
         type=float,
         default=0.001,
@@ -404,9 +434,7 @@ def main(argv=None):
     if not Path(args.file).is_file():
         parser.error(f"no such panda output file: {args.file}")
 
-    return run_file(
-        args.file, args, SOLVERS[args.solver], np.random.default_rng(args.seed)
-    )
+    return run_file(args.file, args, SOLVERS[args.solver])
 
 
 if __name__ == "__main__":

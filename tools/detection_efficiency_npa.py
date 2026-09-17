@@ -56,6 +56,42 @@ and a single SDP settles that. Only liftings passing that test are bisected, so
 a facet costs roughly one SDP per lifting plus a handful of bisections. The
 result is the same minimum, to the requested precision, as bisecting them all.
 
+That still pays one SDP per lifting, which is what limits the exhaustive search
+to small scenarios. ``--candidates N`` cuts the search to the ``N`` most
+promising liftings by Cope & Colbeck's heuristic (Sec. V C): "For each lifting
+we summed all coefficients corresponding to detection failure outcomes, and
+then tested the ten with the lowest sum for each inequality. This is to
+minimise the impact of the failure sub-distributions, which are entirely
+local." Their setting is ``--candidates 10``.
+
+Ties count. "If more than ten had an equivalent sum, all were tested" -- and
+because a facet's relabelling symmetries produce liftings of equal weight, the
+Nth score usually sits inside a tie, so the shortlist is often much larger than
+``N`` (108 of 243 for 3233 line 24). See ``_take``.
+
+The reasoning is that a failure sub-distribution is a product of local
+responses, so the no-click coefficients decide how much of the functional is
+spent on outcomes that cannot carry a violation; the less of it they take up,
+the more survives an inefficient detector.
+
+Mind the sign. Cope & Colbeck write inequalities as ``tr(B^T Pi) >= c``,
+violated from below, whereas panda writes ``sum gamma p <= rhs``, violated from
+above -- the same functional negated. Their "lowest sum" is therefore the
+*highest* sum here, which is what ``ranked_liftings`` orders by. The difference
+is not cosmetic: ranking the other way picks the worst liftings, and on 3322
+line 26 returns 0.886 where the best lifting gives 0.665.
+
+It is a heuristic and nothing more, so a threshold found this way is an *upper*
+bound on the minimum over all liftings -- Cope & Colbeck say as much -- and it
+is recorded in its own column (``..._top<N>_L<level>``) rather than mixed in
+with exhaustive results.
+
+The same ordering is applied even in the exhaustive search, where it is free
+and only helps: a good bound found early prunes more liftings later. One
+consequence is that the reported eta may move within ``--precision`` from a run
+made before the ordering existed, since which lifting sets the bracket first
+depends on the order.
+
 What the number means
 ---------------------
 The relaxation's maximum upper-bounds the true quantum maximum, so a maximum at
@@ -100,7 +136,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from analysis_stage import StageResult  # noqa: E402
+from analysis_stage import StageResult, analyse_facets, resolve_jobs  # noqa: E402
 from analysis_table import AnalysisTable  # noqa: E402
 from upper_bound_q_npa_full_probability import (  # noqa: E402
     SOLVERS,
@@ -112,7 +148,7 @@ from upper_bound_q_npa_full_probability import (  # noqa: E402
 from lower_bound_q_seesaw_full_probability import (  # noqa: E402
     Scenario,
     default_out_path,
-    read_inequalities,
+    load_inequalities,
     resolve_scenario,
 )
 
@@ -124,6 +160,12 @@ Array = np.ndarray
 # genuine but tiny violation may be missed, which raises the reported
 # efficiency: CHSH, whose threshold approaches 2/3, comes out near 0.6686.
 DEFAULT_TOLERANCE = 1e-6
+
+# Relative tolerance at which two lifting scores count as tied. It only has to
+# exceed the rounding noise between two algebraically equal scores (~1e-15
+# relative), and staying far below any real gap keeps genuinely different
+# liftings apart.
+TIE_TOLERANCE = 1e-9
 
 
 # --------------------------------------------------------------------------- #
@@ -210,18 +252,117 @@ def outcome_lifting(gamma: Array, copy_a, copy_b) -> Array:
     return lifted
 
 
-def all_liftings(scenario: Scenario):
-    """Every outcome lifting ``(copy_a, copy_b)``.
+def failure_weights(gamma: Array) -> Array:
+    """``F[x, y, i, j]``: the no-click coefficients one setting pair contributes.
 
-    ``copy_a[x]`` is the outcome whose coefficients Alice's no-click outcome
-    takes for setting ``x``, chosen independently per setting, and likewise for
-    Bob.
+    If Alice's no-click outcome copies ``i`` at setting ``x`` and Bob's copies
+    ``j`` at setting ``y``, the lifted functional's entries with a failure on
+    either side sum, for that pair of settings, to
+
+        sum_b gamma[i, b, x, y] + sum_a gamma[a, j, x, y] + gamma[i, j, x, y]
+
+    -- Alice's no-click row, Bob's no-click column and the both-fail corner, in
+    the order ``outcome_lifting`` writes them. Summing this over all setting
+    pairs gives the lifting's total failure weight, which is the quantity Cope
+    & Colbeck rank on.
     """
+    rows = np.transpose(gamma.sum(axis=1), (1, 2, 0))  # [x, y, i]
+    columns = np.transpose(gamma.sum(axis=0), (1, 2, 0))  # [x, y, j]
+    return (
+        rows[:, :, :, None]
+        + columns[:, :, None, :]
+        + np.transpose(gamma, (2, 3, 0, 1))  # [x, y, i, j]
+    )
+
+
+def ranked_liftings(scenario: Scenario, gamma: Array, count=None):
+    """Outcome liftings ordered by failure weight, most promising first.
+
+    A lifting is ``(copy_a, copy_b)``: ``copy_a[x]`` is the outcome whose
+    coefficients Alice's no-click outcome takes for setting ``x``, chosen
+    independently per setting, and likewise for Bob. There are
+    ``n_A^m_A n_B^m_B`` of them and every one is scored; ``count`` then keeps
+    only the most promising, which is Cope & Colbeck's subset (see the module
+    docstring). Scoring is arithmetic on a table of size ``m_A m_B n_A n_B``,
+    so it is free beside the SDP each surviving lifting costs.
+
+    Sign convention. Cope & Colbeck write a Bell inequality as
+    ``tr(B^T Pi) >= c``, violated by going *below* the bound, and rank the
+    liftings by the *lowest* failure-coefficient sum. Panda writes facets the
+    other way up, ``sum gamma p <= rhs``, violated by going *above*, which is
+    the same functional negated -- so their rule becomes the *highest* sum
+    here, and that is how the liftings are ordered below. Ranking them by the
+    lowest sum in this convention picks the worst liftings rather than the
+    best: on 3322 line 26 it returns 0.886 where the best lifting gives 0.665.
+
+    Yields ``(weight, copy_a, copy_b)``, most promising first, where ``weight``
+    is the failure-coefficient sum as panda writes it (negate it to compare
+    with the paper).
+    """
+    weights = failure_weights(gamma)
+    settings_a = np.arange(scenario.n_set_a)
+    settings_b = np.arange(scenario.n_set_b)
+    # Every choice for Bob at once, so one copy_a is scored against all of them
+    # in a single gather rather than one Python iteration per lifting.
+    copies_b = np.array(
+        list(itertools.product(range(scenario.n_out_b), repeat=scenario.n_set_b))
+    )
+
+    # Mathematically equal scores can differ in the last bits between two ways
+    # of writing the same facet, so they are compared at a relative tolerance;
+    # the lifting itself then breaks the tie, which makes the order a property
+    # of the inequality rather than of the enumeration.
+    scale = TIE_TOLERANCE * max(1.0, float(np.abs(weights).max()))
+
+    def order(item):
+        weight, copy_a, copy_b = item
+        return (-round(weight / scale), copy_a, copy_b)
+
+    ranked: list = []
     for copy_a in itertools.product(range(scenario.n_out_a), repeat=scenario.n_set_a):
-        for copy_b in itertools.product(
-            range(scenario.n_out_b), repeat=scenario.n_set_b
-        ):
-            yield np.array(copy_a), np.array(copy_b)
+        # contribution[y, j]: what Bob's setting y adds if his no-click copies
+        # j, with Alice's choices already summed over her settings.
+        contribution = weights[settings_a, :, list(copy_a), :].sum(axis=0)
+        totals = contribution[settings_b[None, :], copies_b].sum(axis=1)
+        ranked.extend(
+            (float(total), copy_a, tuple(copy_b))
+            for total, copy_b in zip(totals, copies_b)
+        )
+        # Trim as we go so that a scenario with millions of liftings needs
+        # memory for the shortlist rather than for all of them.
+        if count is not None and len(ranked) > 8 * count:
+            ranked = _take(ranked, count, order)
+
+    return _take(ranked, count, order)
+
+
+def _take(ranked, count, order):
+    """The ``count`` best by ``order``, extended through any tie at the cut.
+
+    Cope & Colbeck: "tested the ten with the lowest sum for each inequality. If
+    more than ten had an equivalent sum, all were tested." The extension is not
+    a detail: the cut falls inside a group of equal scores more often than not,
+    because a facet's relabelling symmetries produce liftings of identical
+    weight. A "top ten" of a 243-lifting scenario routinely sits inside a tie of
+    a hundred -- for 3233 line 24 it is 108 of the 243 -- so ``--candidates 10``
+    buys less there than the name suggests, and the saving is largest where the
+    weights are spread out.
+
+    Cutting mid-tie instead would leave the shortlist to the enumeration order,
+    which is not a property of the inequality: two ways of writing one facet
+    would then search different liftings. Tied liftings do not share a threshold
+    (3322 line 26 has both 0.6646 and 0.8139 at weight -3), so that choice would
+    move the answer.
+    """
+    ordered = sorted(ranked, key=order)
+    if count is None or len(ordered) <= count:
+        return ordered
+
+    cut = order(ordered[count - 1])[0]
+    end = count
+    while end < len(ordered) and order(ordered[end])[0] == cut:
+        end += 1
+    return ordered[:end]
 
 
 def no_signalling_floor(n_set_a: int, n_set_b: int) -> float:
@@ -298,8 +439,9 @@ def find_threshold(
     start=0.99,
     bisect_precision=0.001,
     tolerance=DEFAULT_TOLERANCE,
+    candidates=None,
 ):
-    """Smallest ``eta`` admitting a violation, over every outcome lifting.
+    """Smallest ``eta`` admitting a violation, over the liftings searched.
 
     Monotonicity makes the bisection valid: Cope & Colbeck note that for
     ``eta_1 >= eta_2``, non-locality at ``eta_2`` implies non-locality at
@@ -309,14 +451,21 @@ def find_threshold(
     The same monotonicity lets most liftings be dismissed with one SDP: a
     lifting that does not violate at ``best - precision`` has its threshold
     above that, so it cannot improve the minimum by more than the precision.
-    The returned bracket is valid for the minimum over *all* liftings.
+    With ``candidates=None`` every lifting is searched and the returned bracket
+    is valid for the minimum over *all* of them.
+
+    ``candidates=N`` searches only the ``N`` lowest-failure-weight liftings
+    (Cope & Colbeck's heuristic, see the module docstring), which turns a facet
+    from ``n_A^m_A n_B^m_B`` SDPs into at most ``N`` of them. The result is then
+    an upper bound on the minimum: a lifting that was never tested may do
+    better.
     """
     floor = no_signalling_floor(scenario.n_set_a, scenario.n_set_b)
     evaluations = liftings = 0
     best = None  # (low, high, copy_a, copy_b, lifted)
     lower = start  # smallest efficiency any lifting might still violate at
 
-    for copy_a, copy_b in all_liftings(scenario):
+    for _weight, copy_a, copy_b in ranked_liftings(scenario, gamma, candidates):
         liftings += 1
         probe = start if best is None else best[1] - bisect_precision
         if probe <= floor:
@@ -380,17 +529,29 @@ class EfficiencyStage:
             f"{scenario.n_set_a}{scenario.n_set_b}"
             f"{scenario.n_out_a + 1}{scenario.n_out_b + 1}"
         )
-        self.column = f"{args.column}_L{self.level}"
-        self.skip_column = f"{args.column}_skipped_L{self.level}"
-        self.lifting_column = f"{args.column}_lifting_L{self.level}"
+        self.candidates = args.candidates
+        # A heuristic search answers a weaker question than an exhaustive one
+        # -- an upper bound on the minimum rather than the minimum -- so it
+        # gets its own column instead of being mixed in with exhaustive
+        # results. The two can then be compared on a scenario small enough for
+        # both.
+        base = args.column if self.candidates is None else f"{args.column}_top{self.candidates}"
+        self.column = f"{base}_L{self.level}"
+        self.skip_column = f"{base}_skipped_L{self.level}"
+        self.lifting_column = f"{base}_lifting_L{self.level}"
         self.columns = (self.column, self.lifting_column, self.skip_column)
-        self.violated = self.not_violated = 0
 
     def describe(self) -> str:
         """One line naming the work and the columns, for a run header."""
+        searched = (
+            f"{self.n_liftings} liftings"
+            if self.candidates is None
+            else f"{min(self.candidates, self.n_liftings)} of {self.n_liftings} "
+            "liftings by failure weight"
+        )
         return (
             f"detection efficiency at NPA level {self.level} "
-            f"(moment matrix {self.size}x{self.size}), {self.n_liftings} liftings "
+            f"(moment matrix {self.size}x{self.size}), {searched} "
             f"to {self.lifted_label}, floor {self.floor:.6f}, "
             f"start eta {self.args.start:g} -> column {self.column!r}"
         )
@@ -415,15 +576,15 @@ class EfficiencyStage:
             start=self.args.start,
             bisect_precision=self.args.precision,
             tolerance=self.args.tolerance,
+            candidates=self.candidates,
         )
 
         if not result.violated_at_start:
-            self.not_violated += 1
             return StageResult(
                 values={self.skip_column: f"no_violation_at_{self.args.start:g}"},
                 report=[
                     f"no violation at eta = {self.args.start:g} under any of the "
-                    f"{result.liftings} liftings"
+                    f"{result.liftings} liftings searched"
                 ],
                 # A facet that is not violated even at a near-perfect detector
                 # is the common case in a large file; printing every one of
@@ -446,7 +607,6 @@ class EfficiencyStage:
                 "model exists. The functional is not the intended inequality."
             )
 
-        self.violated += 1
         low, high = result.bracket
         lifting = (
             f"a={''.join(map(str, result.copy_a))} "
@@ -458,26 +618,39 @@ class EfficiencyStage:
                 f"eta <= {result.eta:.6f} (bracket [{low:.6f}, {high:.6f}]); "
                 f"no-click copies {lifting}; "
                 f"{result.evaluations} SDP(s) over {result.liftings} liftings"
+                + (
+                    ""
+                    if self.candidates is None
+                    else f" of {self.n_liftings} (upper bound: heuristic subset)"
+                )
             ],
         )
 
 
 def run_file(path, args, solver):
-    inequalities = list(read_inequalities(path, limit=args.limit))
-    if not inequalities:
-        raise SystemExit(f"no inequalities found in {path}")
+    selection = load_inequalities(path, args.limit, args.randomize)
+    inequalities = selection.inequalities
 
     scenario = resolve_scenario(path, inequalities, None)
     stage = EfficiencyStage(scenario, args, solver)
+    jobs = resolve_jobs(args.jobs)
 
     out_path = Path(args.out) if args.out else default_out_path(path)
     table = AnalysisTable.load(out_path)
+    table.ensure_columns(stage.columns)
 
+    searched = (
+        "all of them"
+        if stage.candidates is None
+        else f"the {stage.candidates} of lowest failure weight, plus ties "
+        "(Cope & Colbeck)"
+    )
     print(
-        f"{path}: {len(inequalities)} inequalities, correlations {scenario.label}, "
+        f"{path}: {selection.label}, correlations {scenario.label}, "
         f"{stage.n_liftings} outcome liftings per facet to {stage.lifted_label} "
-        f"(last outcome is no-click), "
+        f"(last outcome is no-click), searching {searched}; "
         f"NPA level {stage.level} (moment matrix {stage.size}x{stage.size})"
+        + (f"; {jobs} workers" if jobs > 1 else "")
     )
     print(
         f"no-signalling floor (m_A+m_B-2)/(m_A m_B-1) = {stage.floor:.6f}; "
@@ -498,41 +671,55 @@ def run_file(path, args, solver):
             sys.stderr.flush()
 
     started = time.time()
-    present = 0
-    for count, parsed in enumerate(inequalities, start=1):
+    violated = not_violated = present = 0
+    failures = []
+    for count, outcome in enumerate(
+        analyse_facets(inequalities, [stage], table, jobs, args.overwrite), start=1
+    ):
+        parsed = outcome.parsed
         status(
             f"[{count}/{len(inequalities)}] line {parsed.line_number} · "
-            f"{stage.violated} violated · {time.time() - started:.0f}s"
+            f"{violated} violated · {time.time() - started:.0f}s"
         )
-        if not args.overwrite and stage.done(table, parsed.line_number):
+        if stage.name in outcome.skipped:
             present += 1
             continue
 
-        try:
-            result = stage.analyse(parsed)
-        except SystemExit:
-            status()  # clear the status line so the message is not printed over
-            raise
+        for _name, message in outcome.failures:
+            status()
+            print(f"line {parsed.line_number}: FAILED: {message}")
+            failures.append((parsed.line_number, message))
 
-        if result.notable:
-            status()  # clear the status line so the result does not print over it
-            for line in result.report:
-                print(f"line {parsed.line_number}: {line}")
+        for result in outcome.results.values():
+            # A facet with no violation even at a near-perfect detector is the
+            # common case in a large file; printing every one of them would
+            # bury the facets that do have a threshold.
+            if result.notable:
+                violated += 1
+                status()  # clear the status line so the result is not printed over
+                for line in result.report:
+                    print(f"line {parsed.line_number}: {line}")
+            else:
+                not_violated += 1
 
-        table.update(
-            parsed.line_number,
-            inequality=parsed.text,
-            rhs=parsed.rhs,
-            values=result.values,
-        )
-        table.save(out_path)  # save as we go: long runs stay resumable
+        if outcome.results:
+            table.update(
+                parsed.line_number,
+                inequality=parsed.text,
+                rhs=parsed.rhs,
+                values=outcome.values(),
+            )
+            table.save(out_path)  # save as we go: long runs stay resumable
 
     status()
     print(
-        f"\n{stage.violated} violated, {stage.not_violated} not violated at eta = "
+        f"\n{violated} violated, {not_violated} not violated at eta = "
         f"{args.start:g}, {present} already present; "
         f"done in {time.time() - started:.1f}s -> {out_path}"
     )
+    for line, message in failures:
+        print(f"  failed: line {line}: {message}")
+    return 1 if failures else 0
 
 
 def main(argv=None):
@@ -565,7 +752,46 @@ def main(argv=None):
         help="bisection width on eta (default: 0.001)",
     )
     parser.add_argument(
+        "--candidates",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "search only the N most promising liftings by no-click "
+            "coefficient sum, the heuristic of Cope & Colbeck "
+            "(arXiv:1812.10017), who use N = 10. Liftings tied with the "
+            "Nth are searched too, as in the paper, so the shortlist is often "
+            "larger than N. It replaces the n_A^m_A n_B^m_B SDPs a facet costs "
+            "with an upper bound on the minimum rather than the minimum, and "
+            "writes its own '..._topN_...' column (default: search every "
+            "lifting)"
+        ),
+    )
+    parser.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "analyse N facets at a time in separate processes; 0 or less uses "
+            "every core available to this process. Results are unchanged; they "
+            "are printed as they finish rather than in file order (default: 1)"
+        ),
+    )
+    parser.add_argument(
         "--limit", type=int, default=None, help="only process the first N inequalities"
+    )
+    parser.add_argument(
+        "--randomize",
+        type=int,
+        default=None,
+        metavar="SEED",
+        help=(
+            "draw the --limit inequalities uniformly at random from the whole "
+            "file instead of taking the first ones; the same seed and --limit "
+            "select the same facets in every analysis script"
+        ),
     )
     parser.add_argument(
         "--tolerance",
@@ -592,8 +818,8 @@ def main(argv=None):
     except ValueError as error:
         parser.error(str(error))
 
-    run_file(args.file, args, SOLVERS[args.solver])
+    return run_file(args.file, args, SOLVERS[args.solver])
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

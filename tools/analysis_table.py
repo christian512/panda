@@ -79,6 +79,19 @@ class AnalysisTable:
     # ----------------------------------------------------------------------- #
     # Reading and writing values
     # ----------------------------------------------------------------------- #
+    def ensure_columns(self, names) -> None:
+        """Register columns now, so their order does not depend on the rows.
+
+        Columns are otherwise appended the first time some row carries one,
+        which makes the layout depend on which facet happens to be written
+        first -- and with facets analysed in parallel, that is whichever
+        finished first. Declaring a stage's columns before the run fixes the
+        order for every run over the same file.
+        """
+        for name in names:
+            if name not in self.columns:
+                self.columns.append(name)
+
     def has_value(self, line: int, column: str) -> bool:
         """Whether ``column`` already holds a non-empty value for this line."""
         return bool(self.rows.get(line, {}).get(column, "").strip())

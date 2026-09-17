@@ -79,12 +79,12 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from analysis_stage import StageResult  # noqa: E402
+from analysis_stage import StageResult, analyse_facets, resolve_jobs  # noqa: E402
 from analysis_table import AnalysisTable  # noqa: E402
 from lower_bound_q_seesaw_full_probability import (  # noqa: E402
     Scenario,
     default_out_path,
-    read_inequalities,
+    load_inequalities,
     resolve_scenario,
 )
 
@@ -409,42 +409,56 @@ class NPAStage:
 
 
 def run_file(path, args, solver):
-    inequalities = list(read_inequalities(path, limit=args.limit))
-    if not inequalities:
-        raise SystemExit(f"no inequalities found in {path}")
+    selection = load_inequalities(path, args.limit, args.randomize)
+    inequalities = selection.inequalities
 
     scenario = resolve_scenario(path, inequalities, args.dim)
     out_path = Path(args.out) if args.out else default_out_path(path)
     table = AnalysisTable.load(out_path)
     stage = NPAStage(scenario, args, solver)
+    jobs = resolve_jobs(args.jobs)
+    table.ensure_columns(stage.columns)
 
     print(
-        f"{path}: {len(inequalities)} inequalities, "
+        f"{path}: {selection.label}, "
         f"scenario {scenario.label} (settings then outcomes), "
         f"NPA level {stage.level} (moment matrix {stage.size}x{stage.size})"
+        + (f", {jobs} workers" if jobs > 1 else "")
     )
     print(f"writing analysis to {out_path} (column {stage.column!r})\n")
 
     started = time.time()
-    for index, parsed in enumerate(inequalities):
-        if not args.overwrite and stage.done(table, parsed.line_number):
-            print(f"[{index}] line {parsed.line_number}: already present, skipping")
+    failures = []
+    for count, outcome in enumerate(
+        analyse_facets(inequalities, [stage], table, jobs, args.overwrite), start=1
+    ):
+        parsed = outcome.parsed
+        head = f"[{count}/{len(inequalities)}] line {parsed.line_number}"
+        if stage.name in outcome.skipped:
+            print(f"{head}: already present, skipping")
             continue
 
-        print(f"[{index}] line {parsed.line_number}: {parsed.text}")
-        result = stage.analyse(parsed)
-        for line in result.report:
-            print(f"    {line}")
+        print(f"{head}: {parsed.text}")
+        for _name, message in outcome.failures:
+            print(f"    FAILED: {message}")
+            failures.append((parsed.line_number, message))
+        for result in outcome.results.values():
+            for line in result.report:
+                print(f"    {line}")
 
-        table.update(
-            parsed.line_number,
-            inequality=parsed.text,
-            rhs=parsed.rhs,
-            values=result.values,
-        )
-        table.save(out_path)  # save as we go: long runs stay resumable
+        if outcome.results:
+            table.update(
+                parsed.line_number,
+                inequality=parsed.text,
+                rhs=parsed.rhs,
+                values=outcome.values(),
+            )
+            table.save(out_path)  # save as we go: long runs stay resumable
 
     print(f"\ndone in {time.time() - started:.1f}s -> {out_path}")
+    for line, message in failures:
+        print(f"  failed: line {line}: {message}")
+    return 1 if failures else 0
 
 
 def main(argv=None):
@@ -480,6 +494,29 @@ def main(argv=None):
     )
     parser.add_argument(
         "--limit", type=int, default=None, help="only process the first N inequalities"
+    )
+    parser.add_argument(
+        "--randomize",
+        type=int,
+        default=None,
+        metavar="SEED",
+        help=(
+            "draw the --limit inequalities uniformly at random from the whole "
+            "file instead of taking the first ones; the same seed and --limit "
+            "select the same facets in every analysis script"
+        ),
+    )
+    parser.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "analyse N facets at a time in separate processes; 0 or less uses "
+            "every core available to this process. Results are unchanged; they "
+            "are printed as they finish rather than in file order (default: 1)"
+        ),
     )
     parser.add_argument(
         "--tolerance",
@@ -533,8 +570,8 @@ def main(argv=None):
     except ValueError as error:
         parser.error(str(error))
 
-    run_file(args.file, args, SOLVERS[args.solver])
+    return run_file(args.file, args, SOLVERS[args.solver])
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

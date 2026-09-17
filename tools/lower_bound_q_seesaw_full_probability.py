@@ -78,7 +78,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from analysis_stage import StageResult  # noqa: E402
+from analysis_stage import StageResult, analyse_facets, resolve_jobs  # noqa: E402
 from analysis_table import AnalysisTable  # noqa: E402
 
 Array = np.ndarray
@@ -178,8 +178,8 @@ def parse_inequality(line: str, line_number: int = 0) -> ParsedInequality:
     )
 
 
-def read_inequalities(path, limit=None):
-    """Yield ``ParsedInequality`` objects from a panda full-probability output file.
+def iter_inequality_lines(path):
+    """Yield ``(line_number, text)`` for each inequality line of a panda file.
 
     The file is streamed line by line, so large outputs are fine; ``.gz`` files
     are decompressed on the fly. Only the ``Inequalities:`` section is read --
@@ -187,8 +187,10 @@ def read_inequalities(path, limit=None):
     normalization / no-signaling equalities, which are constraints on the
     parameterization rather than Bell functionals. ``line_number`` is the
     1-based physical line in the file, which is what the analysis table keys on.
+
+    The text is yielded unparsed so that ``sample_inequalities`` can stream a
+    whole file without paying for the parsing of the lines it discards.
     """
-    count = 0
     in_inequalities = True  # files without any header are taken to be inequalities
     opener = gzip.open if str(path).endswith(".gz") else open
     with opener(path, "rt") as handle:
@@ -201,10 +203,93 @@ def read_inequalities(path, limit=None):
                 continue
             if not in_inequalities:
                 continue
-            yield parse_inequality(stripped, number)
-            count += 1
-            if limit is not None and count >= limit:
-                return
+            yield number, stripped
+
+
+def read_inequalities(path, limit=None):
+    """Yield ``ParsedInequality`` objects from a panda full-probability output file.
+
+    Stops after ``limit`` of them, so a limited run reads only the head of the
+    file rather than all of it.
+    """
+    for count, (number, text) in enumerate(iter_inequality_lines(path), start=1):
+        yield parse_inequality(text, number)
+        if limit is not None and count >= limit:
+            return
+
+
+def sample_inequalities(path, count, seed):
+    """A uniform random sample of ``count`` inequalities from the *whole* file.
+
+    Reservoir sampling (Algorithm R) in one streaming pass: the first ``count``
+    lines fill the reservoir, and the i-th line thereafter replaces a uniformly
+    chosen one with probability ``count / i``, which leaves every line of the
+    file equally likely to survive. Only the reservoir is held, so a file with
+    millions of facets is sampled without reading it into memory, and only the
+    survivors are parsed -- the per-line cost of a pass is one random draw.
+
+    Sampling is what makes a file too large to sweep still informative: a random
+    few hundred facets estimate the distribution of the quantum violations,
+    the noise robustness and the detection efficiencies, while the first few
+    hundred lines of a panda file are in whatever order the enumeration
+    produced and are not representative of anything.
+
+    Returns ``(inequalities, total)``, the sample in file order together with
+    the number of inequalities the file holds.
+    """
+    rng = np.random.default_rng(seed)
+    reservoir: list = []
+    total = 0
+    for total, item in enumerate(iter_inequality_lines(path), start=1):
+        if len(reservoir) < count:
+            reservoir.append(item)
+            continue
+        slot = rng.integers(0, total)
+        if slot < count:
+            reservoir[slot] = item
+
+    reservoir.sort()  # file order, so the analysis still reads top to bottom
+    return [parse_inequality(text, number) for number, text in reservoir], total
+
+
+@dataclass
+class Selection:
+    """The facets an analysis will run over, and a line saying how they were chosen."""
+
+    inequalities: list
+    label: str
+
+
+def load_inequalities(path, limit=None, randomize=None) -> Selection:
+    """The facets to analyse: the first ``limit`` of them, or a random sample.
+
+    ``randomize`` is the sampling seed. Every script selects its facets through
+    this function, so one seed and one ``limit`` pick the same facets
+    everywhere: the three analyses can be run separately, or resumed days
+    later, and still meet in the same rows of the same analysis file.
+
+    The seed is deliberately separate from any seed an analysis uses for its own
+    randomness -- the see-saw's restarts -- so that one sample can be re-run
+    with different restarts, or one restart seed applied to different samples.
+    """
+    if randomize is None:
+        inequalities = list(read_inequalities(path, limit=limit))
+        label = f"{len(inequalities)} inequalities"
+    else:
+        if limit is None:
+            raise SystemExit(
+                "--randomize needs a sample size: pass --limit N to draw N "
+                "facets at random from the file"
+            )
+        inequalities, total = sample_inequalities(path, limit, randomize)
+        label = (
+            f"{len(inequalities)} of {total} inequalities, "
+            f"sampled at random with seed {randomize}"
+        )
+
+    if not inequalities:
+        raise SystemExit(f"no inequalities found in {path}")
+    return Selection(inequalities, label)
 
 
 def infer_scenario(inequalities, local_dim=None) -> Scenario:
@@ -520,7 +605,17 @@ def best_of(scenario, gamma, rng, n_tries=5, verbose=False, **kwargs) -> SeesawR
 # Entry point
 # --------------------------------------------------------------------------- #
 def resolve_scenario(path, inequalities, dim):
-    """Scenario for a file: filename convention if present, else inferred indices."""
+    """Scenario for a file: filename convention if present, else inferred indices.
+
+    Inferring from ``inequalities`` sees only the facets being analysed, so a
+    file analysed under ``--limit`` or ``--randomize`` whose name does not
+    encode its scenario can infer a *smaller* one than the file really has --
+    and the scenario is not a label: the white-noise behaviour, the NPA moment
+    matrix and the liftings all depend on it, so two samples of such a file
+    would not produce comparable columns. Naming the file by the convention
+    (``3322`` = m_A m_B o_A o_B), which every file in ``results/`` follows,
+    settles the scenario before any facet is read and avoids that entirely.
+    """
     scenario = scenario_from_filename(path, dim) or infer_scenario(inequalities, dim)
     if dim:  # honour an explicit --dim even when the filename fixed the scenario
         scenario = Scenario(
@@ -558,10 +653,10 @@ class SeesawStage:
 
     name = "seesaw"
 
-    def __init__(self, scenario, args, rng, solver):
+    def __init__(self, scenario, args, solver):
         self.scenario = scenario
         self.args = args
-        self.rng = rng
+        self.seed = args.seed
         self.solver = solver
         # The local dimension is part of the column name, so bounds computed at
         # different dimensions accumulate side by side instead of overwriting
@@ -591,12 +686,25 @@ class SeesawStage:
         """
         return all(table.has_value(line, column) for column in self.columns)
 
+    def rng_for(self, parsed):
+        """A generator fixed by ``--seed`` and the facet's own line number.
+
+        Deriving the restarts from the line number rather than from one
+        generator threaded through the file keeps a facet's see-saw identical
+        whether it is analysed first or hundredth, in this process or in a
+        worker, in one run or in a resumption of an earlier one. Without a
+        ``--seed`` the restarts stay genuinely random.
+        """
+        if self.seed is None:
+            return np.random.default_rng()
+        return np.random.default_rng([self.seed, parsed.line_number])
+
     def analyse(self, parsed) -> StageResult:
         gamma = parsed.to_tensor(self.scenario)
         result = best_of(
             self.scenario,
             gamma,
-            self.rng,
+            self.rng_for(parsed),
             n_tries=self.args.tries,
             verbose=self.args.verbose,
             precision=self.args.precision,
@@ -655,20 +763,22 @@ class SeesawStage:
         )
 
 
-def run_file(path, args, rng, solver):
-    inequalities = list(read_inequalities(path, limit=args.limit))
-    if not inequalities:
-        raise SystemExit(f"no inequalities found in {path}")
+def run_file(path, args, solver):
+    selection = load_inequalities(path, args.limit, args.randomize)
+    inequalities = selection.inequalities
 
     scenario = resolve_scenario(path, inequalities, args.dim)
     out_path = Path(args.out) if args.out else default_out_path(path)
     table = AnalysisTable.load(out_path)
-    stage = SeesawStage(scenario, args, rng, solver)
+    stage = SeesawStage(scenario, args, solver)
+    jobs = resolve_jobs(args.jobs)
+    table.ensure_columns(stage.columns)
 
     print(
-        f"{path}: {len(inequalities)} inequalities, "
+        f"{path}: {selection.label}, "
         f"scenario {scenario.label} (settings then outcomes), "
         f"local dimension {scenario.local_dim}"
+        + (f", {jobs} workers" if jobs > 1 else "")
     )
     print(
         f"writing analysis to {out_path} "
@@ -676,25 +786,37 @@ def run_file(path, args, rng, solver):
     )
 
     started = time.time()
-    for index, parsed in enumerate(inequalities):
-        if not args.overwrite and stage.done(table, parsed.line_number):
-            print(f"[{index}] line {parsed.line_number}: already present, skipping")
+    failures = []
+    for count, outcome in enumerate(
+        analyse_facets(inequalities, [stage], table, jobs, args.overwrite), start=1
+    ):
+        parsed = outcome.parsed
+        head = f"[{count}/{len(inequalities)}] line {parsed.line_number}"
+        if stage.name in outcome.skipped:
+            print(f"{head}: already present, skipping")
             continue
 
-        print(f"[{index}] line {parsed.line_number}: {parsed.text}")
-        result = stage.analyse(parsed)
-        for line in result.report:
-            print(f"    {line}")
+        print(f"{head}: {parsed.text}")
+        for _name, message in outcome.failures:
+            print(f"    FAILED: {message}")
+            failures.append((parsed.line_number, message))
+        for result in outcome.results.values():
+            for line in result.report:
+                print(f"    {line}")
 
-        table.update(
-            parsed.line_number,
-            inequality=parsed.text,
-            rhs=parsed.rhs,
-            values=result.values,
-        )
-        table.save(out_path)  # save as we go: long runs stay resumable
+        if outcome.results:
+            table.update(
+                parsed.line_number,
+                inequality=parsed.text,
+                rhs=parsed.rhs,
+                values=outcome.values(),
+            )
+            table.save(out_path)  # save as we go: long runs stay resumable
 
     print(f"\ndone in {time.time() - started:.1f}s -> {out_path}")
+    for line, message in failures:
+        print(f"  failed: line {line}: {message}")
+    return 1 if failures else 0
 
 
 def main(argv=None):
@@ -720,6 +842,18 @@ def main(argv=None):
         "--limit", type=int, default=None, help="only process the first N inequalities"
     )
     parser.add_argument(
+        "--randomize",
+        type=int,
+        default=None,
+        metavar="SEED",
+        help=(
+            "draw the --limit inequalities uniformly at random from the whole "
+            "file instead of taking the first ones; the same seed and --limit "
+            "select the same facets in every analysis script, and this seed is "
+            "independent of --seed, which drives the see-saw's restarts"
+        ),
+    )
+    parser.add_argument(
         "--precision", type=float, default=1e-9, help="see-saw convergence threshold"
     )
     parser.add_argument(
@@ -732,6 +866,20 @@ def main(argv=None):
         help="slack before a value counts as violating the classical bound",
     )
     parser.add_argument("--seed", type=int, default=None, help="random seed")
+    parser.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "analyse N facets at a time in separate processes; 0 or less uses "
+            "every core available to this process. Results are identical to a "
+            "serial run -- each facet's restarts come from --seed and its line "
+            "number -- but they are printed as they finish rather than in file "
+            "order (default: 1)"
+        ),
+    )
     parser.add_argument(
         "--solver",
         choices=sorted(SOLVERS),
@@ -771,9 +919,8 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
-    rng = np.random.default_rng(args.seed)
-    run_file(args.file, args, rng, SOLVERS[args.solver])
+    return run_file(args.file, args, SOLVERS[args.solver])
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
