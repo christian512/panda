@@ -375,13 +375,45 @@ namespace
       {
          throw std::invalid_argument("Failed to open file \"" + filename + "\".");
       }
-      std::string token;
-      input::advanceToNextKeyword(file, token);
-      if ( input::implementation::isKeywordInequalities(token) )
+      Inequalities<int> known;
+      bool has_inequalities = false;
+      for ( std::string token; input::advanceToNextKeyword(file, token); )
       {
-         return readInequalities(argc, argv, file, names, {});
+         if ( input::implementation::isKeywordNames(token) )
+         {
+            // The names of a file containing known facets are not used: the
+            // indices are those of the input file. Hence a deviation would
+            // silently misinterpret every coefficient.
+            const auto known_names = input::implementation::names(file);
+            if ( known_names != names )
+            {
+               throw std::invalid_argument("The \"Names\" section of the file containing known facets does not match the \"Names\" section of the input file.");
+            }
+         }
+         else if ( input::implementation::isKeywordInequalities(token) ||
+                   input::implementation::isKeywordReducedInequalities(token) )
+         {
+            // Both sections list one representative per class, so a reduced
+            // section needs no expansion here: every row is turned into its
+            // class representative before it enters the pool.
+            auto inequalities = readInequalities(argc, argv, file, names, {});
+            known.reserve(known.size() + inequalities.size());
+            known.insert(known.end(), inequalities.cbegin(), inequalities.cend());
+            has_inequalities = true;
+         }
+         else
+         {
+            // Any other section (e.g. the "Equations" that PANDA prints ahead
+            // of the facets of a polytope that is not full dimensional) is
+            // implied by the input file and therefore skipped.
+            std::getline(file, token);
+         }
       }
-      throw std::invalid_argument("Expected no other keyword than \"Inequalities\" in a file containing known facets.");
+      if ( !has_inequalities )
+      {
+         throw std::invalid_argument("Expected an \"Inequalities\" section in a file containing known facets.");
+      }
+      return known;
    }
 
    Vertices<int> knownVertices(int argc, char** argv)
