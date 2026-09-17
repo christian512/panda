@@ -2,3 +2,4 @@
 **/obj/
 **/bin/
 *.sage.py
+**/__pycache__/

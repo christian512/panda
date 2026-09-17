@@ -1,0 +1,13 @@
+Equations:
+pAB00x1y1 +pAB01x1y1 +pAB10x1y1 +pAB11x1y1 = 1
+pAB10x1y0 -pAB10x1y1 +pAB11x1y0 -pAB11x1y1 = 0
+pAB01x0y1 -pAB01x1y1 +pAB11x0y1 -pAB11x1y1 = 0
+pAB10x0y0 -pAB10x0y1 +pAB11x0y0 -pAB11x0y1 = 0
+pAB01x0y0 -pAB01x1y0 +pAB11x0y0 -pAB11x1y0 = 0
+pAB00x0y1 +pAB01x1y1 +pAB10x0y1 +pAB11x1y1 = 1
+pAB00x1y0 +pAB01x1y0 +pAB10x1y1 +pAB11x1y1 = 1
+pAB00x0y0 +pAB01x1y0 +pAB10x0y1 -pAB11x0y0 +pAB11x0y1 +pAB11x1y0 = 1
+
+Inequalities:
+pAB01x1y0 +pAB10x0y1 -pAB11x0y0 +pAB11x0y1 +pAB11x1y0 <= 1
+-pAB01x1y1 -pAB10x1y1 -pAB11x0y0 +pAB11x0y1 +pAB11x1y0 -pAB11x1y1 <= 0
